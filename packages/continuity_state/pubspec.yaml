@@ -1,0 +1,23 @@
+name: continuity_state
+description: Riverpod state management for Splurter continuity features
+publish_to: none
+
+environment:
+  sdk: '>=3.7.0 <4.0.0'
+  flutter: '>=3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  continuity_api:
+    path: ../continuity_api
+  platform_bindings:
+    path: ../platform_bindings
+  shared_types:
+    path: ../shared_types
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  build_runner: ^2.4.15

@@ -1,0 +1,12 @@
+name: platform_bindings
+description: MethodChannel wrappers for platform-specific access in Splurter
+publish_to: none
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared_types:
+    path: ../shared_types

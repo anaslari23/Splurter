@@ -1,0 +1,46 @@
+name: splurter_mac
+description: Splurter macOS app
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  go_router: ^14.8.1
+  flutter_secure_storage: ^9.2.2
+  connectivity_plus: ^7.0.0
+  path_provider: ^2.1.5
+  path: ^1.9.1
+  uuid: ^4.5.2
+  window_manager: ^0.4.0
+
+  shared_types:
+    path: ../../packages/shared_types
+  continuity_api:
+    path: ../../packages/continuity_api
+  platform_bindings:
+    path: ../../packages/platform_bindings
+  continuity_ui:
+    path: ../../packages/continuity_ui
+
+dependency_overrides:
+  shared_types:
+    path: ../../packages/shared_types
+  continuity_api:
+    path: ../../packages/continuity_api
+  platform_bindings:
+    path: ../../packages/platform_bindings
+  continuity_ui:
+    path: ../../packages/continuity_ui
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

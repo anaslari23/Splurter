@@ -1,0 +1,6 @@
+name: shared_types
+description: Shared DTOs and state machines for Splurter
+publish_to: none
+
+environment:
+  sdk: ^3.7.0

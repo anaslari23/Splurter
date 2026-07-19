@@ -1,0 +1,20 @@
+name: splurter
+description: Android-to-Mac Continuity app
+
+packages:
+  - packages/**
+  - apps/**
+
+command:
+  bootstrap:
+    usePubspecOverrides: true
+  fetch:
+    run: melos exec -- flutter pub get
+
+scripts:
+  analyze:
+    run: melos exec -- flutter analyze
+  test:
+    run: melos exec -- flutter test
+  format:
+    run: melos exec -- flutter format .
