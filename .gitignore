@@ -30,6 +30,9 @@
 
 # Android related
 **/android/app/build/
+**/android/build/
+**/android/.gradle/
+**/android/app/.cxx/
 **/android/local.properties
 **/android/key.properties
 **/android/Flutter/local.properties
@@ -39,3 +42,10 @@
 **/macos/Flutter/ephemeral/
 **/macos/Flutter/GeneratedPluginRegistrant.swift
 **/macos/Pods/
+**/macos/build/
+
+# Project build artifacts
+/build/
+/apps/android_app/build/
+/apps/mac_app/build/
+apps/*/test/widget_test.dart

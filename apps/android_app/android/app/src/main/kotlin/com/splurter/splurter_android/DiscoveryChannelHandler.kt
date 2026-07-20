@@ -21,10 +21,11 @@ class DiscoveryChannelHandler(
 
     fun install() {
         channel.setMethodCallHandler { call, result ->
+            val args = call.arguments as? Map<*, *>
             when (call.method) {
-                "advertise" -> handleAdvertise(call, result)
+                "advertise" -> handleAdvertise(args, result)
                 "stopAdvertising" -> handleStopAdvertising(result)
-                "browse" -> handleBrowse(call.argument("serviceType"), result)
+                "browse" -> handleBrowse(args, result)
                 "stopBrowsing" -> handleStopBrowsing(result)
                 else -> result.notImplemented()
             }
@@ -39,20 +40,20 @@ class DiscoveryChannelHandler(
         channel.setMethodCallHandler(null)
     }
 
-    private fun handleAdvertise(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
-        val serviceType = call.argument<String>("serviceType") ?: run {
+    private fun handleAdvertise(args: Map<*, *>?, result: MethodChannel.Result) {
+        val serviceType = args?.get("serviceType") as? String ?: run {
             result.error("INVALID_ARGS", "serviceType required", null); return
         }
-        val port = call.argument<Int>("port") ?: run {
+        val port = (args?.get("port") as? Number)?.toInt() ?: run {
             result.error("INVALID_ARGS", "port required", null); return
         }
-        val deviceName = call.argument<String>("deviceName") ?: run {
+        val deviceName = args?.get("deviceName") as? String ?: run {
             result.error("INVALID_ARGS", "deviceName required", null); return
         }
-        val version = call.argument<String>("version") ?: run {
+        val version = args?.get("version") as? String ?: run {
             result.error("INVALID_ARGS", "version required", null); return
         }
-        val capabilities = call.argument<List<String>>("capabilities") ?: emptyList()
+        val capabilities = args?.get("capabilities") as? List<*> ?: emptyList<String>()
 
         registrationListener?.let { nsdManager.unregisterService(it) }
 
@@ -62,25 +63,21 @@ class DiscoveryChannelHandler(
             this.port = port
         }
 
-        // Store extra attributes in the service info via a workaround:
-        // NsdServiceInfo doesn't expose a generic attributes map, so we
-        // encode the data into the service name and retrieve it on the
-        // discovery side. For a production app, use a TCP data response.
         val listener = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(name: String) {
+            override fun onServiceRegistered(serviceInfo: NsdServiceInfo?) {
                 mainHandler.post {
-                    channel.invokeMethod("onServiceRegistered", mapOf("name" to name))
+                    channel.invokeMethod("onServiceRegistered", mapOf("name" to (serviceInfo?.serviceName ?: "")))
                 }
             }
 
-            override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+            override fun onRegistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
                 mainHandler.post {
                     channel.invokeMethod("onRegistrationFailed", mapOf("errorCode" to errorCode))
                 }
             }
 
-            override fun onServiceUnregistered(serviceInfo: NsdServiceInfo) {}
-            override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
+            override fun onServiceUnregistered(serviceInfo: NsdServiceInfo?) {}
+            override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {}
         }
 
         try {
@@ -98,8 +95,8 @@ class DiscoveryChannelHandler(
         result.success(null)
     }
 
-    private fun handleBrowse(serviceType: String?, result: MethodChannel.Result) {
-        if (serviceType == null) {
+    private fun handleBrowse(args: Map<*, *>?, result: MethodChannel.Result) {
+        val serviceType = args?.get("serviceType") as? String ?: run {
             result.error("INVALID_ARGS", "serviceType required", null); return
         }
         discoveryListener?.let { nsdManager.stopServiceDiscovery(it) }
@@ -107,21 +104,25 @@ class DiscoveryChannelHandler(
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(regType: String) {}
             override fun onServiceFound(service: NsdServiceInfo) {
-                val resolveCallback = NsdManager.ResolveCallback { info ->
-                    val host = info.host
-                    val address = host?.hostAddress ?: ""
-                    mainHandler.post {
-                        channel.invokeMethod("onServiceFound", mapOf(
-                            "id" to info.serviceName,
-                            "name" to info.serviceName,
-                            "address" to address,
-                            "port" to info.port,
-                            "platform" to "android",
-                            "version" to "0.1.0",
-                            "capabilities" to listOf("clipboard", "transfer"),
-                            "fingerprint" to "",
-                        ))
+                val resolveCallback = object : NsdManager.ResolveListener {
+                    override fun onServiceResolved(info: NsdServiceInfo?) {
+                        info ?: return
+                        val host = info.host
+                        val address = host?.hostAddress ?: ""
+                        mainHandler.post {
+                            channel.invokeMethod("onServiceFound", mapOf(
+                                "id" to info.serviceName,
+                                "name" to info.serviceName,
+                                "address" to address,
+                                "port" to info.port,
+                                "platform" to "android",
+                                "version" to "0.1.0",
+                                "capabilities" to listOf("clipboard", "transfer"),
+                                "fingerprint" to "",
+                            ))
+                        }
                     }
+                    override fun onResolveFailed(service: NsdServiceInfo?, errorCode: Int) {}
                 }
                 try { nsdManager.resolveService(service, resolveCallback) } catch (_: Exception) {}
             }

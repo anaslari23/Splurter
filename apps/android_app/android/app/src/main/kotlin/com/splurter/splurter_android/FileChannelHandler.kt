@@ -7,13 +7,15 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.MethodChannel.MethodCallHandler
+import io.flutter.plugin.common.MethodChannel.Result
 
 class FileChannelHandler(
     private val context: Context,
     private val flutterEngine: FlutterEngine,
 ) {
     private val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
-    private var pendingResult: MethodChannel.Result? = null
+    private var pendingResult: Result? = null
 
     fun setActivityProvider(provider: () -> Activity?) {
         activityProvider = provider
@@ -21,9 +23,10 @@ class FileChannelHandler(
 
     fun install() {
         channel.setMethodCallHandler { call, result ->
+            val args = call.arguments as? Map<*, *>
             when (call.method) {
                 "pickFile" -> pickFile(result)
-                "saveFileDialog" -> saveFile(call, result)
+                "saveFileDialog" -> saveFile(args, result)
                 else -> result.notImplemented()
             }
         }
@@ -57,7 +60,7 @@ class FileChannelHandler(
         return true
     }
 
-    private fun pickFile(result: MethodChannel.Result) {
+    private fun pickFile(result: Result) {
         if (pendingResult != null) {
             result.error("BUSY", "File operation in progress", null)
             return
@@ -77,7 +80,7 @@ class FileChannelHandler(
         )
     }
 
-    private fun saveFile(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+    private fun saveFile(args: Map<*, *>?, result: Result) {
         if (pendingResult != null) {
             result.error("BUSY", "File operation in progress", null)
             return
@@ -87,8 +90,8 @@ class FileChannelHandler(
             return
         }
         pendingResult = result
-        val suggestedName = call.argument<String>("suggestedName") ?: "untitled"
-        val mimeType = call.argument<String>("mimeType") ?: "*/*"
+        val suggestedName = (args?.get("suggestedName") as? String) ?: "untitled"
+        val mimeType = (args?.get("mimeType") as? String) ?: "*/*"
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             this.type = mimeType
             putExtra(Intent.EXTRA_TITLE, suggestedName)

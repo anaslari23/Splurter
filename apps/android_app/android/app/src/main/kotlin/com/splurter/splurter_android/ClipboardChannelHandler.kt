@@ -10,9 +10,6 @@ import android.os.Looper
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-/**
- * Handles the "splurter/clipboard" MethodChannel.
- */
 class ClipboardChannelHandler(
     private val context: Context,
     private val flutterEngine: FlutterEngine,
@@ -32,8 +29,9 @@ class ClipboardChannelHandler(
             when (call.method) {
                 "read" -> readClipboard(result)
                 "write" -> {
-                    val content = call.argument<String>("content")
-                    val mimeType = call.argument<String>("mimeType") ?: "text/plain"
+                    val args = call.arguments as? Map<*, *>
+                    val content = args?.get("content") as? String
+                    val mimeType = (args?.get("mimeType") as? String) ?: "text/plain"
                     writeClipboard(content, mimeType, result)
                 }
                 "startListening" -> {

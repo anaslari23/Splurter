@@ -6,8 +6,8 @@ plugins {
 
 android {
     namespace = "com.splurter.splurter_android"
-    compileSdk = 35
-    ndkVersion = "27.1.12297006"
+    compileSdk = 36
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "com.splurter.splurter"

@@ -27,7 +27,7 @@
 
     <application
         android:label="Splurter"
-        android:name="${applicationName}"
+        android:name=".MainApplication"
         android:icon="@mipmap/ic_launcher">
 
         <activity

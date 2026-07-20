@@ -4,12 +4,12 @@ import FlutterMacOS
 
 class DiscoveryHandler {
     private let channel: FlutterMethodChannel
-    private let advertiserProvider: () -> NWListener?
+    private var advertiser: NWListener?
     private var browser: NWBrowser?
 
-    init(channel: FlutterMethodChannel, advertiser: @escaping () -> NWListener?) {
+    init(channel: FlutterMethodChannel, advertiser: NWListener?) {
         self.channel = channel
-        self.advertiserProvider = advertiser
+        self.advertiser = advertiser
     }
 
     func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -17,7 +17,8 @@ class DiscoveryHandler {
         case "advertise":
             result(nil)
         case "stopAdvertising":
-            advertiserProvider()?.cancel()
+            advertiser?.cancel()
+            advertiser = nil
             result(nil)
         case "browse":
             guard let serviceType = (call.arguments as? [String: Any])?["serviceType"] as? String else {

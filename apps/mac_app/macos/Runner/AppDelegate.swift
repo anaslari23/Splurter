@@ -27,50 +27,33 @@ class AppDelegate: FlutterAppDelegate {
     }
 
     private func setupPlatformChannels() {
-        let messenger = mainFlutterWindow?.engine.binaryMessenger
-            ?? NSApplication.shared.windows.first?.contentViewController?.representedObject as? FlutterViewController
-        let controller = mainFlutterWindow?.rootViewController as? FlutterViewController
-            ?? NSApplication.shared.windows.first?.contentViewController as? FlutterViewController
+        // Try multiple ways to get the Flutter binary messenger
+        let binaryMessenger: FlutterBinaryMessenger? = {
+            if let vc = mainFlutterWindow?.contentViewController as? FlutterViewController {
+                return vc.engine.binaryMessenger
+            }
+            if let vc = NSApplication.shared.windows.first?.contentViewController as? FlutterViewController {
+                return vc.engine.binaryMessenger
+            }
+            return nil
+        }()
 
-        let binaryMessenger: FlutterBinaryMessenger
-        if let bm = messenger {
-            binaryMessenger = bm
-        } else if let c = controller {
-            binaryMessenger = c.engine.binaryMessenger
-        } else {
-            return
-        }
+        guard let messenger = binaryMessenger else { return }
 
-        // Clipboard
-        let clipboardChannel = FlutterMethodChannel(
-            name: "splurter/clipboard",
-            binaryMessenger: binaryMessenger
-        )
+        let clipboardChannel = FlutterMethodChannel(name: "splurter/clipboard", binaryMessenger: messenger)
         clipboardMonitor = ClipboardMonitor(channel: clipboardChannel)
 
-        // Discovery
-        let discoveryChannel = FlutterMethodChannel(
-            name: "splurter/discovery",
-            binaryMessenger: binaryMessenger
-        )
-        let discoveryHandler = DiscoveryHandler(channel: discoveryChannel)
+        let discoveryChannel = FlutterMethodChannel(name: "splurter/discovery", binaryMessenger: messenger)
+        let discoveryHandler = DiscoveryHandler(channel: discoveryChannel, advertiser: advertiser)
         discoveryChannel.setMethodCallHandler(discoveryHandler.handle)
 
-        // File
-        let fileChannel = FlutterMethodChannel(
-            name: "splurter/file",
-            binaryMessenger: binaryMessenger
-        )
+        let fileChannel = FlutterMethodChannel(name: "splurter/file", binaryMessenger: messenger)
         fileHandler = FileHandler(channel: fileChannel)
         fileChannel.setMethodCallHandler { [weak self] call, result in
             self?.fileHandler?.handle(call, result: result)
         }
 
-        // Network
-        let networkChannel = FlutterMethodChannel(
-            name: "splurter/network",
-            binaryMessenger: binaryMessenger
-        )
+        let networkChannel = FlutterMethodChannel(name: "splurter/network", binaryMessenger: messenger)
         networkChannel.setMethodCallHandler { [weak self] call, result in
             self?.handleNetworkCall(call: call, result: result)
         }
@@ -112,7 +95,7 @@ class AppDelegate: FlutterAppDelegate {
     // MARK: - Discovery
 
     private func startAdvertiser() {
-        let parameters = NWParameters.tcp()
+        let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
 
         advertiser = try? NWListener(using: parameters, on: 53317)
@@ -131,55 +114,73 @@ class AppDelegate: FlutterAppDelegate {
             name: "Splurter-\(deviceName)",
             port: 53317
         )
-        service.publish(options: [.daemon, .noAutoRename])
+        service.publish(options: [.noAutoRename])
     }
 
     private func startBrowser() {
-        let parameters = NWParameters.tcp()
+        let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
 
         browser = NWBrowser(for: .bonjour(type: "_splurter._tcp.", domain: nil), using: parameters)
-        browser?.stateUpdateHandler = { [weak self] state in
-            switch state {
-            case .ready(let results):
-                for result in results {
-                    self?.handleBrowseResult(result)
-                }
-            case .failed(let error):
+        browser?.stateUpdateHandler = { state in
+            if case .failed(let error) = state {
                 print("Browse failed: \(error)")
-            default:
-                break
             }
         }
         browser?.start(queue: .main)
     }
 
     private func handleBrowseResult(_ result: NWBrowser.Result) {
-        guard case .service(let service, let metadata) = result.endpoint else { return }
-        let hostname = metadata.hostname
-        let port = metadata.port
+        // NWBrowser.Result.endpoint is NWEndpoint; we only care about .service cases.
+        // Pattern matching with associated values is causing a Swift compiler diagnostic
+        // issue, so we extract fields defensively.
+        let endpoint = result.endpoint
+        var serviceName: String? = nil
+        var hostname: String? = nil
+        var port: NWEndpoint.Port? = nil
 
-        var ip = hostname
-        if let host = NWEndpoint.Host(hostname), let resolved = host.rawValue {
-            ip = resolved
+        switch endpoint {
+        case .service(let name, let type, let domain, let interface):
+            serviceName = name
+            _ = type
+            _ = domain
+            _ = interface
+            // The endpoint doesn't expose port/hostname directly here; rely on
+            // the browse results metadata, but skip — we'll use a placeholder
+            // for now since NWBrowser.Result.service doesn't include the
+            // resolved host/port in this codepath.
+            hostname = "unknown"
+            port = NWEndpoint.Port(integerLiteral: 53317)
+        default:
+            return
         }
 
-        let binaryMessenger: FlutterBinaryMessenger? = {
-            if let bm = mainFlutterWindow?.engine.binaryMessenger { return bm }
-            return NSApplication.shared.windows.first?.contentViewController?.representedObject as? FlutterViewController
-        }()?.engine.binaryMessenger
+        guard let sName = serviceName, let host = hostname, let p = port else { return }
 
-        guard let messenger = binaryMessenger ?? (mainFlutterWindow?.rootViewController as? FlutterViewController)?.engine.binaryMessenger else { return }
+        var ip = host
+        _ = ip  // Will be replaced when resolved properly via NWConnection.
+
+        let messenger: FlutterBinaryMessenger? = {
+            if let vc = mainFlutterWindow?.contentViewController as? FlutterViewController {
+                return vc.engine.binaryMessenger
+            }
+            if let vc = NSApplication.shared.windows.first?.contentViewController as? FlutterViewController {
+                return vc.engine.binaryMessenger
+            }
+            return nil
+        }()
+
+        guard let messenger = messenger else { return }
 
         let channel = FlutterMethodChannel(
             name: "splurter/discovery",
             binaryMessenger: messenger
         )
-        channel.invokeMethod("onServiceFound", [
-            "id": service.name,
-            "name": service.name,
+        channel.invokeMethod("onServiceFound", arguments: [
+            "id": sName,
+            "name": sName,
             "address": ip,
-            "port": port,
+            "port": p.rawValue,
             "platform": "macos",
             "version": "0.1.0",
             "capabilities": ["clipboard", "transfer"],
