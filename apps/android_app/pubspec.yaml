@@ -10,7 +10,13 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  firebase_core: ^3.10.0
+  firebase_auth: ^5.5.3
+  cloud_firestore: ^5.6.6
+  firebase_messaging: ^15.2.4
+  google_sign_in: ^6.2.2
   flutter_riverpod: ^2.6.1
+
   go_router: ^14.8.1
   flutter_secure_storage: ^9.2.2
   connectivity_plus: ^7.0.0
@@ -22,8 +28,12 @@ dependencies:
 
   shared_types:
     path: ../../packages/shared_types
+  continuity_core:
+    path: ../../packages/continuity_core
   continuity_api:
     path: ../../packages/continuity_api
+  continuity_state:
+    path: ../../packages/continuity_state
   platform_bindings:
     path: ../../packages/platform_bindings
   continuity_ui:
@@ -32,12 +42,18 @@ dependencies:
 dependency_overrides:
   shared_types:
     path: ../../packages/shared_types
+  continuity_core:
+    path: ../../packages/continuity_core
   continuity_api:
     path: ../../packages/continuity_api
+  continuity_state:
+    path: ../../packages/continuity_state
   platform_bindings:
     path: ../../packages/platform_bindings
   continuity_ui:
     path: ../../packages/continuity_ui
+
+
 
 dev_dependencies:
   flutter_test:

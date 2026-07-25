@@ -1,0 +1,12 @@
+name: continuity_core
+description: Authenticated protocol and domain models for Splurter peers.
+publish_to: none
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  cryptography: ^2.7.0
+
+dev_dependencies:
+  test: ^1.25.0

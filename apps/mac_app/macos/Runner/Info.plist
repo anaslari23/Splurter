@@ -7,7 +7,7 @@
     <key>CFBundleExecutable</key>
     <string>splurter_mac</string>
     <key>CFBundleIdentifier</key>
-    <string>com.splurter.macApp</string>
+    <string>com.example.splurterMac</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -31,5 +31,18 @@
     </dict>
     <key>LSUIElement</key>
     <false/>
+    <key>GIDClientID</key>
+    <string>296846623634-lhhvki5igg069c1kt6q438kvb1d2m38n.apps.googleusercontent.com</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.296846623634-lhhvki5igg069c1kt6q438kvb1d2m38n</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

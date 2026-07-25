@@ -10,12 +10,19 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_riverpod: ^2.6.1
+  firebase_auth: ^5.5.3
+  cloud_firestore: ^5.6.6
+  google_sign_in: ^6.2.2
   continuity_api:
     path: ../continuity_api
+
   platform_bindings:
     path: ../platform_bindings
   shared_types:
     path: ../shared_types
+  flutter_secure_storage: ^9.2.2
+  uuid: ^4.5.2
+
 
 dev_dependencies:
   flutter_test:

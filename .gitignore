@@ -48,4 +48,6 @@
 /build/
 /apps/android_app/build/
 /apps/mac_app/build/
+/packages/*/build/
 apps/*/test/widget_test.dart
+

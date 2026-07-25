@@ -12,7 +12,12 @@ dependencies:
   go_router: ^14.8.1
   shared_types:
     path: ../shared_types
+  continuity_state:
+    path: ../continuity_state
+  qr_flutter: ^4.1.0
   uuid: ^4.5.2
+
+
 
 dev_dependencies:
   flutter_test:

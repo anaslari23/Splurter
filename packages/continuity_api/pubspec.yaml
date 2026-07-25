@@ -6,9 +6,9 @@ environment:
   sdk: ^3.7.0
 
 dependencies:
-  flutter:
-    sdk: flutter
-  socket_io_client: ^2.0.3
-  shared_types:
-    path: ../shared_types
-  uuid: ^4.5.2
+  continuity_core:
+    path: ../continuity_core
+
+dev_dependencies:
+  test: ^1.24.0
+

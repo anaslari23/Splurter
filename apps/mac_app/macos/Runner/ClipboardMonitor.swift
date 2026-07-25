@@ -9,7 +9,6 @@ class ClipboardMonitor {
 
     init(channel: FlutterMethodChannel) {
         self.channel = channel
-        start()
     }
 
     deinit { stop() }
@@ -27,6 +26,36 @@ class ClipboardMonitor {
     func stop() {
         timer?.invalidate()
         timer = nil
+    }
+
+    func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        switch call.method {
+        case "read":
+            let pasteboard = NSPasteboard.general
+            result(["content": readCurrentContent(from: pasteboard) ?? "", "mimeType": currentMimeType(from: pasteboard)])
+        case "write":
+            guard let args = call.arguments as? [String: Any], let content = args["content"] as? String else {
+                result(FlutterError(code: "INVALID_ARGS", message: "content is required", details: nil))
+                return
+            }
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            guard pasteboard.setString(content, forType: .string) else {
+                result(FlutterError(code: "CLIPBOARD_ERROR", message: "Could not write to clipboard", details: nil))
+                return
+            }
+            lastEmittedContent = content
+            changeCount = pasteboard.changeCount
+            result(nil)
+        case "startListening":
+            start()
+            result(nil)
+        case "stopListening":
+            stop()
+            result(nil)
+        default:
+            result(FlutterMethodNotImplemented)
+        }
     }
 
     @objc private func checkClipboard() {

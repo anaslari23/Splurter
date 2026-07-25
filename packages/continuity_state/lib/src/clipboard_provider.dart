@@ -49,7 +49,7 @@ final incomingClipProvider =
   final controller = StreamController<ClipItem>.broadcast();
 
   final sub = socket.messages.listen((msg) {
-    if (msg.type == ContinuityMessageType.clipboard) {
+    if (msg.kind == RelayKind.clipboard) {
       final content = msg.payload['content'] as String;
       final mimeType = msg.payload['mimeType'] as String? ?? 'text/plain';
       final item = ClipItem(

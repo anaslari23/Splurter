@@ -7,13 +7,12 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
-import io.flutter.FlutterInjector
-import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
@@ -28,6 +27,8 @@ class SplurterForegroundService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastClipContent: String? = null
     private lateinit var clipboardManager: ClipboardManager
+    private var bleAdvertiser: BleAdvertiser? = null
+    private var localRelayServer: LocalRelayServer? = null
 
     companion object {
         const val NOTIFICATION_ID = 1001
@@ -54,23 +55,61 @@ class SplurterForegroundService : Service() {
         createNotificationChannel()
         clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         setupFlutterEngine()
-        startForeground(NOTIFICATION_ID, buildNotification("Initializing..."))
+        startForegroundCompat(NOTIFICATION_ID, buildNotification("Initializing..."))
+
+        // BLE peripheral — advertises Wi-Fi IP so Mac can connect directly over LAN
+        bleAdvertiser = BleAdvertiser(this).also { it.start() }
+
+        // Local TCP relay server — receives envelopes from Mac over LAN socket
+        localRelayServer = LocalRelayServer { envelope ->
+            val kind = envelope["kind"] ?: return@LocalRelayServer
+            val content = envelope["text"] ?: return@LocalRelayServer
+            if (kind == "clipboard") {
+                val clip = android.content.ClipData.newPlainText("splurter", content)
+                clipboardManager.setPrimaryClip(clip)
+            }
+        }.also { it.start() }
     }
 
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification("Running"))
+        startForegroundCompat(NOTIFICATION_ID, buildNotification("Running"))
         setupClipboardListener()
         return START_STICKY
+    }
+
+    /** API-safe startForeground that avoids ForegroundServiceStartNotAllowedException. */
+    private fun startForegroundCompat(id: Int, notification: Notification) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    id,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                )
+            } else {
+                startForeground(id, notification)
+            }
+        } catch (e: Exception) {
+            // Android 12+ ForegroundServiceStartNotAllowedException —
+            // app was launched from background. Log and continue; the
+            // service will be restarted by WorkManager keepalive.
+            android.util.Log.w("SplurterFGS", "startForeground blocked: ${e.message}")
+        }
     }
 
     override fun onBind(intent: Intent): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()
+        bleAdvertiser?.stop()
+        localRelayServer?.stop()
         flutterEngine?.destroy()
         flutterEngine = null
         channel = null
     }
+
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

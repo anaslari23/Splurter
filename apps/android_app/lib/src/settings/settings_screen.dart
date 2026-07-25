@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:continuity_ui/continuity_ui.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter/services.dart';
+import 'package:continuity_state/continuity_state.dart';
+import 'package:platform_bindings/platform_bindings.dart';
 
-class SettingsScreen extends StatelessWidget {
+
+class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final clipSync = ref.watch(clipboardSyncEnabledProvider);
+    final notifSync = ref.watch(notificationsEnabledProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -14,29 +21,14 @@ class SettingsScreen extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
           _SettingsSection(
-            title: 'Devices',
+            title: 'Devices & Pairing',
             children: [
-              ListTile(
-                leading: const Icon(Icons.link),
-                title: const Text('Manage Paired Devices'),
-                subtitle: const Text('View and remove trusted devices'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Manage devices — coming soon')),
-                  );
-                },
-              ),
               ListTile(
                 leading: const Icon(Icons.qr_code_scanner),
                 title: const Text('Pair New Device'),
-                subtitle: const Text('Scan a QR code to pair'),
+                subtitle: const Text('Scan QR code on macOS companion'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const PairingScreen()),
-                  );
-                },
+                onTap: () => context.push('/scan'),
               ),
             ],
           ),
@@ -45,37 +37,42 @@ class SettingsScreen extends StatelessWidget {
             title: 'Clipboard',
             children: [
               SwitchListTile(
-                value: true,
-                onChanged: (v) {},
-                title: const Text('Auto-sync clipboard'),
-                subtitle: const Text('Automatically copy between paired devices'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.history),
-                title: const Text('Clipboard History'),
-                subtitle: const Text('View and manage synced clipboard items'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Clipboard history — coming soon')),
-                  );
+                value: clipSync,
+                onChanged: (v) {
+                  ref.read(clipboardSyncEnabledProvider.notifier).state = v;
                 },
+                title: const Text('Auto-sync Clipboard'),
+                subtitle: const Text('Automatically share clipboard with Mac'),
               ),
             ],
           ),
           const SizedBox(height: 16),
           _SettingsSection(
-            title: 'Notifications',
+            title: 'Background Sync & Permissions',
             children: [
+              SwitchListTile(
+                value: notifSync,
+                onChanged: (v) async {
+                  if (v) {
+                    await const MethodChannel('splurter/notifications').invokeMethod('requestPermission');
+                  }
+                  ref.read(notificationsEnabledProvider.notifier).state = v;
+                },
+                title: const Text('Notification Mirroring'),
+                subtitle: const Text('Relay Android notifications to Mac desktop'),
+              ),
               ListTile(
-                leading: const Icon(Icons.notifications),
-                title: const Text('Android Notification Access'),
-                subtitle: const Text('Grant access to relay notifications to Mac'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Notification access — coming soon')),
-                  );
+                leading: const Icon(Icons.battery_saver),
+                title: const Text('Battery Optimization Exemption'),
+                subtitle: const Text('Prevent Android from stopping background relay'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () async {
+                  await startForegroundService();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Foreground sync service activated')),
+                    );
+                  }
                 },
               ),
             ],
@@ -86,7 +83,7 @@ class SettingsScreen extends StatelessWidget {
             children: [
               ListTile(
                 leading: Icon(Icons.info_outline, color: theme.colorScheme.onSurfaceVariant),
-                title: const Text('Splurter'),
+                title: const Text('Splurter Continuity'),
                 subtitle: const Text('Version 0.1.0'),
               ),
             ],
@@ -96,6 +93,7 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 }
+
 
 class _SettingsSection extends StatelessWidget {
   const _SettingsSection({required this.title, required this.children});

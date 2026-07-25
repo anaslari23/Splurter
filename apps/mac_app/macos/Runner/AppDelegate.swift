@@ -2,8 +2,11 @@ import Cocoa
 import FlutterMacOS
 import Network
 import Foundation
+import ServiceManagement
+import UserNotifications
 
 @main
+
 class AppDelegate: FlutterAppDelegate {
     private var clipboardMonitor: ClipboardMonitor?
     private var browser: NWBrowser?
@@ -13,13 +16,38 @@ class AppDelegate: FlutterAppDelegate {
     private var popover: NSPopover?
 
     override func applicationDidFinishLaunching(_ notification: Notification) {
-        // Set as menu bar accessory so the app lives without a dock icon
+        // Run as menu-bar accessory — no Dock icon, survives window close
         NSApp.setActivationPolicy(.accessory)
 
         setupPlatformChannels()
+        requestNotificationPermission()
+        registerLaunchAtLogin()
         startAdvertiser()
         startBrowser()
         setupStatusItem()
+    }
+
+
+
+
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            if granted {
+                print("[Splurter] macOS notification permission granted")
+            }
+        }
+    }
+
+    private func registerLaunchAtLogin() {
+        guard #available(macOS 13.0, *) else { return }
+        do {
+            try SMAppService.mainApp.register()
+        } catch {
+            // The user can still start Splurter normally; this is commonly
+            // unavailable in unsigned development builds.
+            print("Launch at login unavailable: \(error)")
+        }
     }
 
     override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -42,6 +70,12 @@ class AppDelegate: FlutterAppDelegate {
 
         let clipboardChannel = FlutterMethodChannel(name: "splurter/clipboard", binaryMessenger: messenger)
         clipboardMonitor = ClipboardMonitor(channel: clipboardChannel)
+        clipboardChannel.setMethodCallHandler { [weak self] call, result in
+            self?.clipboardMonitor?.handle(call, result: result)
+        }
+        // Auto-start clipboard monitoring — runs in background even when window is hidden
+        clipboardMonitor?.start()
+
 
         let discoveryChannel = FlutterMethodChannel(name: "splurter/discovery", binaryMessenger: messenger)
         let discoveryHandler = DiscoveryHandler(channel: discoveryChannel, advertiser: advertiser)
@@ -57,7 +91,11 @@ class AppDelegate: FlutterAppDelegate {
         networkChannel.setMethodCallHandler { [weak self] call, result in
             self?.handleNetworkCall(call: call, result: result)
         }
+
+        // Register native macOS notification channel (show + dismiss + bounce-back to Android)
+        setupNotificationChannel(messenger: messenger)
     }
+
 
     // MARK: - Menu Bar Status Item
 
@@ -70,12 +108,21 @@ class AppDelegate: FlutterAppDelegate {
             button.target = self
         }
 
-        // Build a minimal popover menu (since the Flutter UI is small and lives in a window)
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Show Splurter", action: #selector(showMainWindow), keyEquivalent: ""))
+        menu.addItem(withTitle: "Splurter — Connected", action: nil, keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "📋  Push Clipboard Now", action: #selector(pushClipboardNow), keyEquivalent: "v")
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "Show Window", action: #selector(showMainWindow), keyEquivalent: "")
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
         statusItem?.menu = menu
+    }
+
+    @objc private func pushClipboardNow() {
+        // Trigger an immediate clipboard sync by invoking the Dart method
+        guard let messenger = getBinaryMessenger() else { return }
+        let ch = FlutterMethodChannel(name: "splurter/clipboard", binaryMessenger: messenger)
+        ch.invokeMethod("pushNow", arguments: nil)
     }
 
     @objc private func handleStatusClick() {
@@ -272,4 +319,109 @@ class AppDelegate: FlutterAppDelegate {
         browser?.cancel()
         advertiser?.cancel()
     }
+
+    // MARK: - Helpers
+
+    func getBinaryMessenger() -> FlutterBinaryMessenger? {
+        if let vc = mainFlutterWindow?.contentViewController as? FlutterViewController {
+            return vc.engine.binaryMessenger
+        }
+        if let vc = NSApplication.shared.windows.first?.contentViewController as? FlutterViewController {
+            return vc.engine.binaryMessenger
+        }
+        return nil
+    }
+
+    /// Set up a Flutter ↔ Swift channel so Dart can request a native macOS
+    /// notification (with a Dismiss action that bounces back to Android).
+    private func setupNotificationChannel(messenger: FlutterBinaryMessenger) {
+        let channel = FlutterMethodChannel(name: "splurter/native_notifications", binaryMessenger: messenger)
+        channel.setMethodCallHandler { call, result in
+            switch call.method {
+            case "show":
+                guard let args = call.arguments as? [String: Any] else {
+                    result(FlutterError(code: "INVALID_ARGS", message: nil, details: nil))
+                    return
+                }
+                let notifId  = args["id"] as? String ?? UUID().uuidString
+                let appName  = args["appName"] as? String ?? "Android"
+                let title    = args["title"] as? String ?? ""
+                let body     = args["text"] as? String ?? ""
+                self.showNativeNotification(id: notifId, appName: appName, title: title, body: body)
+                result(nil)
+
+            case "dismiss":
+                let id = (call.arguments as? [String: Any])?["id"] as? String ?? ""
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
+                result(nil)
+
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
+        // Store for later use
+        _notificationChannel = channel
+    }
+
+    private var _notificationChannel: FlutterMethodChannel?
+
+    private func showNativeNotification(id: String, appName: String, title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "[\(appName)] \(title)"
+        content.body = body
+        content.sound = .default
+        // Add a Dismiss action that sends dismissal back to Android via relay
+        let dismissAction = UNNotificationAction(
+            identifier: "DISMISS",
+            title: "Dismiss on Android",
+            options: []
+        )
+        let category = UNNotificationCategory(
+            identifier: "ANDROID_NOTIF",
+            actions: [dismissAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([category])
+        content.categoryIdentifier = "ANDROID_NOTIF"
+
+        let request = UNNotificationRequest(
+            identifier: id,
+            content: content,
+            trigger: nil // deliver immediately
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("[Splurter] Notification error: \(error)")
+            }
+        }
+    }
 }
+
+// MARK: - UNUserNotificationCenterDelegate
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+
+    // Show notifications even when app is in foreground
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    // Handle Dismiss action tap — relay back to Android
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if response.actionIdentifier == "DISMISS" {
+            let notifId = response.notification.request.identifier
+            _notificationChannel?.invokeMethod("onDismissedOnMac", arguments: ["id": notifId])
+        }
+        completionHandler()
+    }
+}
+

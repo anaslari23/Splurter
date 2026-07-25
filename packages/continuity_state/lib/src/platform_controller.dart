@@ -1,9 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' hide ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'package:continuity_api/continuity_api.dart';
 import 'package:platform_bindings/platform_bindings.dart';
+import 'package:uuid/uuid.dart';
 
 import 'settings_provider.dart' hide deviceIdProvider;
 
@@ -15,27 +18,20 @@ class PlatformController {
   PlatformController({
     required this.deviceId,
     required this.deviceInfo,
+    required this.relay,
   });
 
   final String deviceId;
   final DeviceInfo deviceInfo;
-  late final ContinuitySocketClient _socket;
+  final RelayClient relay;
   Timer? _clipDebounce;
+  static const _uuid = Uuid();
 
-  void initialize(String host, int port) {
-    _socket = ContinuitySocketClient(
-      deviceId: deviceId,
-      onMessage: _handleIncoming,
-      onConnect: _onConnect,
-      onDisconnect: _onDisconnect,
-      onError: _onError,
-    );
-
-    _socket.messages.listen(_handleIncoming);
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      startForegroundService();
-    }
-    startClipboardSync();
+  Future<void> initialize() async {
+    await relay.connect();
+    relay.messages.listen(_handleIncoming);
+    // Android clipboard collection is intentionally user-visible only.
+    if (defaultTargetPlatform == TargetPlatform.macOS) startClipboardSync();
   }
 
   Future<void> startForegroundMonitoring() async {
@@ -50,7 +46,7 @@ class PlatformController {
     }
   }
 
-  StreamSubscription<void>? _nativeClipSub;
+  StreamSubscription<ClipboardData>? _nativeClipSub;
 
   void startClipboardSync() {
     _nativeClipSub = listenClipboardChanges().listen((_) {
@@ -64,8 +60,16 @@ class PlatformController {
   Future<void> _sendLocalClipboard() async {
     try {
       final data = await readClipboard();
-      if (_socket.isConnected && data.content.isNotEmpty) {
-        _socket.sendClipboard(data.content, mimeType: data.mimeType);
+      if (relay.isConnected && data.content.isNotEmpty) {
+        await relay.send(RelayEnvelope(
+          version: RelayEnvelope.currentVersion,
+          id: _uuid.v4(),
+          kind: RelayKind.clipboard,
+          senderId: deviceId,
+          recipientId: 'paired-device',
+          sentAt: DateTime.now().toUtc(),
+          payload: {'action': 'set', 'content': data.content, 'mimeType': data.mimeType},
+        ));
       }
     } catch (_) {}
   }
@@ -75,36 +79,46 @@ class PlatformController {
     _nativeClipSub = null;
   }
 
-  StreamSubscription<Map<String, dynamic>>? _nativeNotifSub;
+  StreamSubscription<dynamic>? _nativeNotifSub;
+  static const _notifChannel = EventChannel('splurter/notifications_stream');
 
   void startNotificationSync(bool enabled) {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     if (!enabled) return;
 
-    _nativeNotifSub = SplurterNotificationListener.stream.listen((raw) {
-      if (!_socket.isConnected) return;
-      _socket.sendMessage(ContinuityMessage(
-        type: ContinuityMessageType.notification,
+    _nativeNotifSub = _notifChannel
+        .receiveBroadcastStream()
+        .listen((raw) {
+      final map = Map<String, dynamic>.from(raw as Map? ?? {});
+      if (!relay.isConnected) return;
+      relay.send(RelayEnvelope(
+        version: RelayEnvelope.currentVersion,
+        id: _uuid.v4(),
+        kind: RelayKind.notification,
+        senderId: deviceId,
+        recipientId: 'paired-device',
+        sentAt: DateTime.now().toUtc(),
         payload: {
           'action': 'posted',
-          'id': raw['id'],
-          'packageName': raw['packageName'],
-          'title': raw['title'] ?? '',
-          'text': raw['text'] ?? '',
-          'timestamp': raw['timestamp'],
+          'id': map['id'] ?? '',
+          'packageName': map['packageName'] ?? '',
+          'title': map['title'] ?? '',
+          'text': map['text'] ?? '',
+          'timestamp': map['timestamp'] ?? 0,
         },
       ));
     });
   }
+
 
   void stopNotificationSync() {
     _nativeNotifSub?.cancel();
     _nativeNotifSub = null;
   }
 
-  void _handleIncoming(ContinuityMessage msg) {
-    switch (msg.type) {
-      case ContinuityMessageType.clipboard:
+  void _handleIncoming(RelayEnvelope msg) {
+    switch (msg.kind) {
+      case RelayKind.clipboard:
         if (msg.payload['action'] == 'set') {
           final content = msg.payload['content'] as String;
           final mimeType = msg.payload['mimeType'] as String? ?? 'text/plain';
@@ -122,28 +136,49 @@ class PlatformController {
     } catch (_) {}
   }
 
-  void _onConnect() {
-    _socket.sendMessage(ContinuityMessage(
-      type: ContinuityMessageType.pairing,
+  Future<void> sendTransfer({
+    required String recipientId,
+    required String name,
+    required int size,
+    required String mimeType,
+  }) async {
+    if (!relay.isConnected) return;
+    await relay.send(RelayEnvelope(
+      version: RelayEnvelope.currentVersion,
+      id: _uuid.v4(),
+      kind: RelayKind.transfer,
+      senderId: deviceId,
+      recipientId: recipientId,
+      sentAt: DateTime.now().toUtc(),
       payload: {
-        'action': 'hello',
-        'deviceId': deviceId,
-        'deviceName': deviceInfo.name,
-        'platform': deviceInfo.platform,
+        'action': 'offer',
+        'name': name,
+        'size': size,
+        'mimeType': mimeType,
       },
     ));
   }
 
-  void _onDisconnect() {}
+  Future<void> sendPresence(String status) async {
+    if (!relay.isConnected) return;
+    await relay.send(RelayEnvelope(
+      version: RelayEnvelope.currentVersion,
+      id: _uuid.v4(),
+      kind: RelayKind.presence,
+      senderId: deviceId,
+      recipientId: 'all',
+      sentAt: DateTime.now().toUtc(),
+      payload: {'status': status, 'info': deviceInfo.toJson()},
+    ));
+  }
 
-  void _onError(dynamic error) {}
-
-  void dispose() {
+  Future<void> dispose() async {
     _clipDebounce?.cancel();
     _nativeClipSub?.cancel();
     _nativeNotifSub?.cancel();
     stopClipboardSync();
     stopNotificationSync();
-    _socket.dispose();
+    await relay.disconnect();
   }
 }
+

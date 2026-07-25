@@ -15,4 +15,4 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStatus> {
 final connectedDeviceProvider =
     StateProvider<Map<String, dynamic>?>((ref) => null);
 
-final socketProvider = Provider<ContinuitySocketClient?>((ref) => null);
+final socketProvider = Provider<RelayClient?>((ref) => null);

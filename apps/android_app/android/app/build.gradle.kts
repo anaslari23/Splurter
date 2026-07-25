@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -45,8 +46,23 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Firebase BOM — controls all Firebase SDK versions consistently
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-messaging-ktx")
 }
 
 flutter {
     source = "../.."
+}
+
+tasks.register<Copy>("copyApkToFlutterBuild") {
+    from(layout.buildDirectory.dir("outputs/flutter-apk"))
+    into(file("../../build/app/outputs/flutter-apk"))
+}
+
+afterEvaluate {
+    tasks.findByName("assembleDebug")?.finalizedBy("copyApkToFlutterBuild")
 }

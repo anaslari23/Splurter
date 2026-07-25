@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import './devices/devices_screen.dart';
 import './clipboard/clipboard_screen.dart';
 import './settings/settings_screen.dart';
+import './pairing/qr_scanner_screen.dart';
 
 const _destinations = [
   NavigationDestination(icon: Icon(Icons.devices), label: 'Devices'),
@@ -23,8 +24,10 @@ final appRouter = GoRouter(
     GoRoute(path: '/devices', builder: (context, state) => const _Home(index: 0)),
     GoRoute(path: '/clipboard', builder: (context, state) => const _Home(index: 1)),
     GoRoute(path: '/settings', builder: (context, state) => const _Home(index: 2)),
+    GoRoute(path: '/scan', builder: (context, state) => const QrScannerScreen()),
   ],
 );
+
 
 class _Home extends StatefulWidget {
   const _Home({required this.index});
