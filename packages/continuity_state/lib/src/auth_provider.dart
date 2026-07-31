@@ -65,6 +65,8 @@ Future<void> registerDevice({
   required String deviceId,
   required String platform,
   required String name,
+  String? ipAddress,
+  int? port,
   String? fcmToken,
 }) async {
   await FirebaseFirestore.instance
@@ -76,6 +78,8 @@ Future<void> registerDevice({
     'deviceId': deviceId,
     'platform': platform,
     'name': name,
+    'ipAddress': ipAddress,
+    'port': port ?? 53317,
     'fcmToken': fcmToken,
     'registeredAt': FieldValue.serverTimestamp(),
     'lastSeen': FieldValue.serverTimestamp(),
@@ -96,8 +100,8 @@ final remoteDevicesStreamProvider = StreamProvider.family<List<Device>, String>(
         id: data['deviceId'] ?? doc.id,
         name: data['name'] ?? 'Device',
         platform: data['platform'] ?? 'unknown',
-        address: 'relay',
-        port: 9876,
+        address: data['ipAddress'] ?? 'relay',
+        port: data['port'] ?? 53317,
         version: '1.0',
         capabilities: const ['clipboard', 'notifications', 'fileTransfer'],
         isPaired: true,

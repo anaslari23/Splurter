@@ -5,3 +5,6 @@ export 'src/share_binding.dart';
 export 'src/file_binding.dart';
 export 'src/notification_binding.dart';
 export 'src/foreground_service_binding.dart';
+export 'src/window_binding.dart';
+export 'src/scrcpy_binding.dart';
+export 'src/android_permissions.dart';

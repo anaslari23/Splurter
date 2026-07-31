@@ -56,6 +56,26 @@ Future<void> stopListeningClipboardChanges() async {
   await _clipboardChannel.invokeMethod('stopListening');
 }
 
+/// Open Android System Input Method Settings to allow enabling Splurter Keyboard for background clipboard reads.
+Future<bool> openImeSettings() async {
+  try {
+    final result = await _clipboardChannel.invokeMethod('openImeSettings');
+    return result == true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Check if Splurter Keyboard IME is enabled on Android.
+Future<bool> isImeEnabled() async {
+  try {
+    final result = await _clipboardChannel.invokeMethod('isImeEnabled');
+    return result == true;
+  } catch (_) {
+    return false;
+  }
+}
+
 class ClipboardData {
   const ClipboardData({required this.content, required this.mimeType});
   final String content;

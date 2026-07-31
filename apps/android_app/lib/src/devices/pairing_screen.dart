@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:continuity_ui/continuity_ui.dart';
+import 'package:platform_bindings/platform_bindings.dart' as import_pb;
 
 class PairingScreen extends ConsumerStatefulWidget {
   const PairingScreen({super.key});
@@ -20,11 +22,18 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pair Device')),
-      body: _isPairing
-          ? _buildPairingProgress(theme)
-          : _scanning
-              ? _buildScanner(theme)
-              : _buildWelcome(theme),
+      body: Column(
+        children: [
+          const AndroidPermissionBanner(),
+          Expanded(
+            child: _isPairing
+                ? _buildPairingProgress(theme)
+                : _scanning
+                    ? _buildScanner(theme)
+                    : _buildWelcome(theme),
+          ),
+        ],
+      ),
     );
   }
 
@@ -32,41 +41,78 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.link,
-              size: 80,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(height: 32),
-            Text(
-              'Connect to your devices',
-              style: theme.textTheme.headlineSmall,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Scan a pairing QR code from another Splurter device to start sharing clipboard, files, and more.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.link,
+                size: 80,
+                color: theme.colorScheme.primary,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 48),
-            FilledButton.icon(
-              onPressed: () => setState(() => _scanning = true),
-              icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Scan QR Code'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _startHostPairing,
-              icon: const Icon(Icons.qr_code),
-              label: const Text('Show my pairing code'),
-            ),
-          ],
+              const SizedBox(height: 24),
+              Text(
+                'Connect to your devices',
+                style: theme.textTheme.headlineSmall,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Scan a pairing QR code from another Splurter device to start sharing clipboard, files, and more.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.keyboard_alt, color: theme.colorScheme.secondary),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Background Clipboard (IME)',
+                              style: theme.textTheme.titleMedium,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Enable Splurter Keyboard in Android Settings for background clipboard sync.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          import_pb.openImeSettings();
+                        },
+                        icon: const Icon(Icons.settings),
+                        label: const Text('Enable in Settings'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: () => setState(() => _scanning = true),
+                icon: const Icon(Icons.qr_code_scanner),
+                label: const Text('Scan QR Code'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _startHostPairing,
+                icon: const Icon(Icons.qr_code),
+                label: const Text('Show my pairing code'),
+              ),
+            ],
+          ),
         ),
       ),
     );

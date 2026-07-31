@@ -53,21 +53,37 @@ class SplurterIME : InputMethodService() {
         if (content.isBlank() || content == lastContent) return
         lastContent = content
 
-        val uid = auth.currentUser?.uid ?: return
+        // 1. Local broadcast to foreground service (for instant LAN TCP delivery if active)
+        val localIntent = android.content.Intent("com.splurter.ACTION_CLIPBOARD_CHANGED").apply {
+            putExtra("content", content)
+            setPackage(packageName)
+        }
+        sendBroadcast(localIntent)
 
-        // Send clipboard to Mac via Firestore signal
+        // 2. Fallback / Cloud signal via Firestore
+        val uid = auth.currentUser?.uid ?: return
         db.collection("users")
             .document(uid)
-            .collection("signals")
-            .add(
-                mapOf(
-                    "version" to 1,
-                    "senderId" to "android-device-id",
-                    "recipientId" to "mac-device-id",
-                    "kind" to "clipboard",
-                    "payload" to mapOf("text" to content),
-                    "sentAt" to FieldValue.serverTimestamp(),
-                )
-            )
+            .collection("devices")
+            .whereNotEqualTo("platform", "android")
+            .get()
+            .addOnSuccessListener { query ->
+                for (doc in query.documents) {
+                    val recipientId = doc.id
+                    db.collection("users")
+                        .document(uid)
+                        .collection("signals")
+                        .add(
+                            mapOf(
+                                "version" to 1,
+                                "senderId" to "android",
+                                "recipientId" to recipientId,
+                                "kind" to "clipboard",
+                                "payload" to mapOf("text" to content),
+                                "sentAt" to FieldValue.serverTimestamp(),
+                            )
+                        )
+                }
+            }
     }
 }

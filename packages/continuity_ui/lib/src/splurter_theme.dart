@@ -29,28 +29,28 @@ class SplurterTheme {
 
   static const _darkColorScheme = ColorScheme(
     brightness: Brightness.dark,
-    primary: Color(0xFF6CDBAC),
-    onPrimary: Color(0xFF003828),
-    primaryContainer: Color(0xFF005140),
-    onPrimaryContainer: Color(0xFF89F8C9),
-    secondary: Color(0xFFB5CCBD),
-    onSecondary: Color(0xFF273829),
-    secondaryContainer: Color(0xFF3D4F43),
-    onSecondaryContainer: Color(0xFFD0E8D9),
-    tertiary: Color(0xFFA9CDE0),
-    onTertiary: Color(0xFF023440),
-    tertiaryContainer: Color(0xFF244B5B),
-    onTertiaryContainer: Color(0xFFC4EAFB),
-    error: Color(0xFFFFB4AB),
-    onError: Color(0xFF690005),
-    errorContainer: Color(0xFF93000A),
-    onErrorContainer: Color(0xFFFFDAD6),
-    surface: Color(0xFF191C1A),
-    onSurface: Color(0xFFE2E3DF),
-    onSurfaceVariant: Color(0xFFBFC9C2),
-    outline: Color(0xFF89938C),
-    outlineVariant: Color(0xFF3F4944),
-    surfaceContainerHighest: Color(0xFF3F4944),
+    primary: Color(0xFF6366F1), // Indigo accent
+    onPrimary: Colors.white,
+    primaryContainer: Color(0xFF312E81),
+    onPrimaryContainer: Color(0xFFE0E7FF),
+    secondary: Color(0xFF06B6D4), // Cyan highlight
+    onSecondary: Colors.white,
+    secondaryContainer: Color(0xFF164E63),
+    onSecondaryContainer: Color(0xFFCFFAFE),
+    tertiary: Color(0xFFA855F7), // Purple accent
+    onTertiary: Colors.white,
+    tertiaryContainer: Color(0xFF581C87),
+    onTertiaryContainer: Color(0xFFF3E8FF),
+    error: Color(0xFFF87171),
+    onError: Colors.black,
+    errorContainer: Color(0xFF7F1D1D),
+    onErrorContainer: Color(0xFFFEE2E2),
+    surface: Color(0xFF0F172A), // Slate 900 dark background
+    onSurface: Color(0xFFF8FAFC),
+    onSurfaceVariant: Color(0xFF94A3B8),
+    outline: Color(0xFF334155),
+    outlineVariant: Color(0xFF1E293B),
+    surfaceContainerHighest: Color(0xFF1E293B),
   );
 
   static ThemeData get light => ThemeData(
@@ -62,6 +62,15 @@ class SplurterTheme {
   static ThemeData get dark => ThemeData(
     colorScheme: _darkColorScheme,
     useMaterial3: true,
+    scaffoldBackgroundColor: const Color(0xFF0B0F17),
+    cardTheme: CardThemeData(
+      color: const Color(0xFF161F30).withValues(alpha: 0.75),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Color(0xFF334155), width: 1),
+      ),
+    ),
     fontFamily: 'SFProText',
   );
 }

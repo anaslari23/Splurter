@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_types/shared_types.dart';
 import 'package:continuity_core/continuity_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'pairing_repository.dart';
 
 final pairingRepositoryProvider = Provider<PairingRepository>((ref) {
@@ -63,9 +65,22 @@ class PairingNotifier extends StateNotifier<PairingState> {
     await _repository.savePairedDevice(paired);
   }
 
-  Future<void> unpair() async {
+  Future<void> unpair({String? uid, String? deviceId}) async {
     await _repository.clearPairing();
     state = const PairingIdle();
+    try {
+      final targetUid = uid ?? FirebaseAuth.instance.currentUser?.uid;
+      if (targetUid != null) {
+        final devicesRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(targetUid)
+            .collection('devices');
+        final snapshot = await devicesRef.get();
+        for (final doc in snapshot.docs) {
+          await doc.reference.delete();
+        }
+      }
+    } catch (_) {}
   }
 
   void cancel() {

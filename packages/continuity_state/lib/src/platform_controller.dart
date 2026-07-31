@@ -30,8 +30,7 @@ class PlatformController {
   Future<void> initialize() async {
     await relay.connect();
     relay.messages.listen(_handleIncoming);
-    // Android clipboard collection is intentionally user-visible only.
-    if (defaultTargetPlatform == TargetPlatform.macOS) startClipboardSync();
+    startClipboardSync();
   }
 
   Future<void> startForegroundMonitoring() async {

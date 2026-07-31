@@ -42,6 +42,26 @@ class ClipboardChannelHandler(
                     clipboardManager.removePrimaryClipChangedListener(clipListener)
                     result.success(null)
                 }
+                "openImeSettings" -> {
+                    try {
+                        val intent = android.content.Intent(android.provider.Settings.ACTION_INPUT_METHOD_SETTINGS).apply {
+                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("IME_ERROR", e.message, null)
+                    }
+                }
+                "isImeEnabled" -> {
+                    try {
+                        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                        val enabled = imm.enabledInputMethodList.any { it.packageName == context.packageName }
+                        result.success(enabled)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -78,6 +98,11 @@ class ClipboardChannelHandler(
         }
         try {
             val clip = ClipData.newPlainText("splurter", content)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N_MR1) {
+                val extras = clip.description.extras ?: android.os.PersistableBundle()
+                extras.putBoolean("android.content.extra.IS_REMOTE_DEVICE", true)
+                clip.description.extras = extras
+            }
             clipboardManager.setPrimaryClip(clip)
             result.success(null)
         } catch (e: Exception) {

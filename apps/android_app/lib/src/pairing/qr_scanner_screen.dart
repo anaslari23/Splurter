@@ -5,6 +5,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:continuity_core/continuity_core.dart';
 import 'package:continuity_state/continuity_state.dart';
 import 'package:shared_types/shared_types.dart';
+import '../../main.dart';
 
 class QrScannerScreen extends ConsumerStatefulWidget {
   const QrScannerScreen({super.key});
@@ -47,15 +48,15 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
 
           // Switch the relay to the Mac's host UID so this device reads signals
           if (invitation.hostUid.isNotEmpty) {
-            ref.read(relayLoopProvider).switchUid(invitation.hostUid);
+            ref.read(relayLoopProvider).switchUid(invitation.hostUid, deviceId: kAndroidDeviceId);
 
             // Register this Android device under the Mac's host UID so the Mac
             // recognizes it instantly in its real-time stream.
             await registerDevice(
               uid: invitation.hostUid,
-              deviceId: 'android-device-id',
+              deviceId: kAndroidDeviceId,
               platform: 'android',
-              name: 'Pixel 9a',
+              name: 'Android Device',
             );
           }
 

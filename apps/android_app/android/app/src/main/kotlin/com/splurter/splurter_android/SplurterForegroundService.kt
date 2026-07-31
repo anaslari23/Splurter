@@ -66,6 +66,11 @@ class SplurterForegroundService : Service() {
             val content = envelope["text"] ?: return@LocalRelayServer
             if (kind == "clipboard") {
                 val clip = android.content.ClipData.newPlainText("splurter", content)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N_MR1) {
+                    val extras = clip.description.extras ?: android.os.PersistableBundle()
+                    extras.putBoolean("android.content.extra.IS_REMOTE_DEVICE", true)
+                    clip.description.extras = extras
+                }
                 clipboardManager.setPrimaryClip(clip)
             }
         }.also { it.start() }

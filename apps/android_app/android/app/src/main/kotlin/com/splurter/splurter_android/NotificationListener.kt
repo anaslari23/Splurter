@@ -39,14 +39,40 @@ class NotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
         sbn?.let {
+            val packageName = it.packageName ?: return@let
+
+            // Filter out Splurter's own foreground service & internal notifications
+            if (packageName == "com.splurter.splurter" || packageName == applicationContext.packageName) {
+                return@let
+            }
+
+            // Filter out ongoing background system notifications (e.g. download progress bars)
+            if ((it.notification.flags and Notification.FLAG_ONGOING_EVENT) != 0) {
+                return@let
+            }
+
             val extras = it.notification.extras
             val title = extras.getString(Notification.EXTRA_TITLE) ?: ""
             val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-            val packageName = it.packageName
+
+            // Ignore empty notifications
+            if (title.isEmpty() && text.isEmpty()) {
+                return@let
+            }
+
+            // Resolve human-readable application label (e.g., "WhatsApp", "Slack", "Messages")
+            val appName = try {
+                val pm = applicationContext.packageManager
+                val ai = pm.getApplicationInfo(packageName, 0)
+                pm.getApplicationLabel(ai).toString()
+            } catch (e: Exception) {
+                packageName.substringAfterLast('.').replaceFirstChar { char -> char.uppercase() }
+            }
 
             val payload = mapOf(
-                "id" to it.id.toString() + "-" + System.nanoTime().toString(),
+                "id" to (it.key ?: (it.id.toString() + "-" + System.currentTimeMillis())),
                 "packageName" to packageName,
+                "appName" to appName,
                 "title" to title,
                 "text" to text,
                 "timestamp" to System.currentTimeMillis()

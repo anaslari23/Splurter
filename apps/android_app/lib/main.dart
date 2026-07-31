@@ -31,9 +31,12 @@ void _workManagerDispatcher() {
   });
 }
 
+String kAndroidDeviceId = 'android-device-id';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  kAndroidDeviceId = await getOrCreateDeviceId('android');
 
   // Register WorkManager keepalive — restarts service every 15 min if OEM killed it
   await Workmanager().initialize(_workManagerDispatcher);
@@ -48,8 +51,8 @@ void main() async {
   runApp(
     ProviderScope(
       overrides: [
-        deviceIdProvider.overrideWithValue('android-device-id'),
-        deviceInfoProvider.overrideWithValue(buildDeviceInfo('android-device-id', kDefaultPort)),
+        deviceIdProvider.overrideWithValue(kAndroidDeviceId),
+        deviceInfoProvider.overrideWithValue(buildDeviceInfo(kAndroidDeviceId, kDefaultPort)),
       ],
       child: const SplurterApp(),
     ),
@@ -82,6 +85,7 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
       }
     } catch (_) {}
 
+    final user = FirebaseAuth.instance.currentUser;
     final pairingState = ref.read(pairingStateProvider);
     final pairedDevice = pairingState is PairingConnected ? pairingState.device : null;
 
@@ -90,14 +94,16 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
       await writeClipboard(text);
     };
 
-    if (pairedDevice != null && pairedDevice.address.isNotEmpty) {
-      final hostUid = pairedDevice.address;
-      relay.start(uid: hostUid, deviceId: 'android-device-id');
+    final localIp = await getLocalIpAddress();
+    final hostUid = user?.uid ?? (pairedDevice != null && pairedDevice.address.isNotEmpty ? pairedDevice.address : null);
+    if (hostUid != null) {
+      relay.start(uid: hostUid, deviceId: kAndroidDeviceId);
       await registerDevice(
         uid: hostUid,
-        deviceId: 'android-device-id',
+        deviceId: kAndroidDeviceId,
         platform: 'android',
-        name: 'Pixel 9a',
+        name: 'Android Device',
+        ipAddress: localIp,
       );
     }
 
@@ -113,6 +119,25 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final pairingState = ref.watch(pairingStateProvider);
+    final pairedDevice = pairingState is PairingConnected ? pairingState.device : null;
+    final hostUid = user?.uid ?? (pairedDevice != null && pairedDevice.address.isNotEmpty ? pairedDevice.address : null);
+
+    if (hostUid != null) {
+      final remoteDevicesAsync = ref.watch(remoteDevicesStreamProvider(hostUid));
+      if (remoteDevicesAsync.hasValue) {
+        final remoteDevices = remoteDevicesAsync.asData?.value ?? [];
+        final hasRemoteDevice = remoteDevices.any((d) => d.id != kAndroidDeviceId);
+        if (!hasRemoteDevice && pairedDevice != null) {
+          Future.microtask(() async {
+            ref.read(relayLoopProvider).stop();
+            await ref.read(pairingStateProvider.notifier).unpair();
+          });
+        }
+      }
+    }
+
     return MaterialApp.router(
       title: 'Splurter',
       debugShowCheckedModeBanner: false,

@@ -7,6 +7,8 @@ class ClipboardMonitor {
     private var timer: Timer?
     private var lastEmittedContent: String = ""
 
+    private var history: [String] = []
+
     init(channel: FlutterMethodChannel) {
         self.channel = channel
     }
@@ -14,12 +16,13 @@ class ClipboardMonitor {
     deinit { stop() }
 
     func start() {
+        if timer != nil { return }
         timer = Timer.scheduledTimer(
             timeInterval: 1.0,
             target: self,
             selector: #selector(checkClipboard),
             userInfo: nil,
-            repeats: true,
+            repeats: true
         )
     }
 
@@ -28,11 +31,17 @@ class ClipboardMonitor {
         timer = nil
     }
 
+    func getHistory() -> [String] {
+        return history
+    }
+
     func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "read":
             let pasteboard = NSPasteboard.general
             result(["content": readCurrentContent(from: pasteboard) ?? "", "mimeType": currentMimeType(from: pasteboard)])
+        case "getHistory":
+            result(history)
         case "write":
             guard let args = call.arguments as? [String: Any], let content = args["content"] as? String else {
                 result(FlutterError(code: "INVALID_ARGS", message: "content is required", details: nil))
@@ -44,6 +53,7 @@ class ClipboardMonitor {
                 result(FlutterError(code: "CLIPBOARD_ERROR", message: "Could not write to clipboard", details: nil))
                 return
             }
+            addToHistory(content)
             lastEmittedContent = content
             changeCount = pasteboard.changeCount
             result(nil)
@@ -68,8 +78,18 @@ class ClipboardMonitor {
             guard let content = readCurrentContent(from: pasteboard) else { return }
             if content == lastEmittedContent { return }
             lastEmittedContent = content
+            addToHistory(content)
 
             channel.invokeMethod("onClipboardChanged", arguments: ["content": content, "mimeType": currentMimeType(from: pasteboard)])
+        }
+    }
+
+    private func addToHistory(_ text: String) {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
+        history.removeAll(where: { $0 == text })
+        history.insert(text, at: 0)
+        if history.count > 5 {
+            history = Array(history.prefix(5))
         }
     }
 

@@ -15,6 +15,10 @@ class AppDelegate: FlutterAppDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
 
+    override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        return true
+    }
+
     override func applicationDidFinishLaunching(_ notification: Notification) {
         // Run as menu-bar accessory — no Dock icon, survives window close
         NSApp.setActivationPolicy(.accessory)
@@ -88,8 +92,56 @@ class AppDelegate: FlutterAppDelegate {
         }
 
         let networkChannel = FlutterMethodChannel(name: "splurter/network", binaryMessenger: messenger)
-        networkChannel.setMethodCallHandler { [weak self] call, result in
-            self?.handleNetworkCall(call: call, result: result)
+        networkChannel.setMethodCallHandler { call, result in
+            if call.method == "getNetworkInfo" {
+                var ip = "127.0.0.1"
+                for address in Host.current().addresses {
+                    if !address.contains(":") && !address.hasPrefix("127.") {
+                        ip = address
+                        break
+                    }
+                }
+                result([
+                    "ipAddress": ip,
+                    "isWifi": true,
+                    "isConnected": true
+                ])
+            } else if call.method == "startListening" {
+                result(nil)
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
+        }
+
+        let scrcpyChannel = FlutterMethodChannel(name: "splurter/scrcpy", binaryMessenger: messenger)
+        scrcpyChannel.setMethodCallHandler { call, result in
+            if call.method == "checkAvailability" {
+                let hasScrcpy = FileManager.default.fileExists(atPath: "/opt/homebrew/bin/scrcpy") ||
+                                FileManager.default.fileExists(atPath: "/usr/local/bin/scrcpy")
+                result(hasScrcpy)
+            } else if call.method == "startMirroring" {
+                let args = call.arguments as? [String: Any]
+                let ip = args?["ipAddress"] as? String ?? ""
+                let port = args?["port"] as? Int ?? 5555
+                let deviceName = args?["deviceName"] as? String ?? "Android"
+
+                let scrcpyPath = FileManager.default.fileExists(atPath: "/opt/homebrew/bin/scrcpy")
+                    ? "/opt/homebrew/bin/scrcpy"
+                    : (FileManager.default.fileExists(atPath: "/usr/local/bin/scrcpy") ? "/usr/local/bin/scrcpy" : "scrcpy")
+
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+                let cmd = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; adb connect \(ip):\(port); \(scrcpyPath) -s \(ip):\(port) --window-title=\"Splurter Mirror - \(deviceName)\" --stay-awake --always-on-top"
+                process.arguments = ["-c", cmd]
+                do {
+                    try process.run()
+                    result(true)
+                } catch {
+                    result(false)
+                }
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
         }
 
         // Register native macOS notification channel (show + dismiss + bounce-back to Android)
@@ -104,22 +156,50 @@ class AppDelegate: FlutterAppDelegate {
 
         if let button = statusItem?.button {
             button.image = NSImage(systemSymbolName: "antenna.radiowaves.left.and.right", accessibilityDescription: "Splurter")
-            button.action = #selector(handleStatusClick)
-            button.target = self
         }
 
+        rebuildMenu()
+    }
+
+    private func rebuildMenu() {
         let menu = NSMenu()
-        menu.addItem(withTitle: "Splurter — Connected", action: nil, keyEquivalent: "")
+        menu.delegate = self as? NSMenuDelegate
+        menu.addItem(withTitle: "Splurter — Active", action: nil, keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "📋  Push Clipboard Now", action: #selector(pushClipboardNow), keyEquivalent: "v")
+
+        let history = clipboardMonitor?.getHistory() ?? []
+        if !history.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+            let historyHeader = NSMenuItem(title: "Recent Clips:", action: nil, keyEquivalent: "")
+            historyHeader.isEnabled = false
+            menu.addItem(historyHeader)
+
+            for (index, text) in history.enumerated() {
+                let display = text.count > 30 ? String(text.prefix(30)) + "..." : text
+                let item = NSMenuItem(title: "  \(index + 1). \(display)", action: #selector(handleHistoryClick(_:)), keyEquivalent: "")
+                item.representedObject = text
+                item.target = self
+                menu.addItem(item)
+            }
+        }
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Show Window", action: #selector(showMainWindow), keyEquivalent: "")
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
+
         statusItem?.menu = menu
     }
 
+    @objc private func handleHistoryClick(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        pushClipboardNow()
+    }
+
     @objc private func pushClipboardNow() {
-        // Trigger an immediate clipboard sync by invoking the Dart method
         guard let messenger = getBinaryMessenger() else { return }
         let ch = FlutterMethodChannel(name: "splurter/clipboard", binaryMessenger: messenger)
         ch.invokeMethod("pushNow", arguments: nil)
@@ -204,7 +284,7 @@ class AppDelegate: FlutterAppDelegate {
 
         guard let sName = serviceName, let host = hostname, let p = port else { return }
 
-        var ip = host
+        let ip = host
         _ = ip  // Will be replaced when resolved properly via NWConnection.
 
         let messenger: FlutterBinaryMessenger? = {
@@ -422,6 +502,14 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             _notificationChannel?.invokeMethod("onDismissedOnMac", arguments: ["id": notifId])
         }
         completionHandler()
+    }
+}
+
+// MARK: - NSMenuDelegate
+
+extension AppDelegate: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        rebuildMenu()
     }
 }
 

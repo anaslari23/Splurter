@@ -83,6 +83,8 @@ class DeviceCard extends ConsumerWidget {
                     Text(
                       device.name,
                       style: theme.textTheme.titleMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -90,20 +92,24 @@ class DeviceCard extends ConsumerWidget {
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    if (device.capabilities.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: device.capabilities
+                            .take(3)
+                            .map((cap) => _CapabilityChip(label: cap))
+                            .toList(),
+                      ),
+                    ],
                   ],
                 ),
               ),
-
-              // Capabilities
-              if (device.capabilities.isNotEmpty)
-                Wrap(
-                  spacing: 6,
-                  children: device.capabilities
-                      .take(3)
-                      .map((cap) => _CapabilityChip(label: cap))
-                      .toList(),
-                ),
+              const SizedBox(width: 8),
 
               // Pairing status
               if (device.isPaired)
