@@ -405,24 +405,10 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
                         ),
                         const SizedBox(width: 6),
                         _NavTabButton(
-                          icon: Icons.content_paste_rounded,
-                          label: 'Clipboard',
-                          isSelected: _selectedTabIndex == 1,
-                          onTap: () => setState(() => _selectedTabIndex = 1),
-                        ),
-                        const SizedBox(width: 6),
-                        _NavTabButton(
-                          icon: Icons.swap_horiz_rounded,
-                          label: 'Transfers',
-                          isSelected: _selectedTabIndex == 2,
-                          onTap: () => setState(() => _selectedTabIndex = 2),
-                        ),
-                        const SizedBox(width: 6),
-                        _NavTabButton(
                           icon: Icons.settings_rounded,
                           label: 'Settings',
-                          isSelected: _selectedTabIndex == 3,
-                          onTap: () => setState(() => _selectedTabIndex = 3),
+                          isSelected: _selectedTabIndex == 1,
+                          onTap: () => setState(() => _selectedTabIndex = 1),
                         ),
                         if (activeDevice != null) ...[
                           const SizedBox(width: 12),
@@ -461,8 +447,6 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
                     index: _selectedTabIndex,
                     children: [
                       _DevicesView(activeDevice: activeDevice, invitationCode: invitationCode),
-                      const _ClipboardView(),
-                      const _TransfersView(),
                       const _SettingsView(),
                     ],
                   ),
@@ -564,9 +548,14 @@ class _DevicesView extends ConsumerWidget {
                         color: Colors.greenAccent,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Always-On Continuity Active • Universal Clipboard',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
+                    ),
                     const SizedBox(height: 2),
                     const Text(
-                      'Always-On Native Continuity • Direct Local Wi-Fi & Firestore Cloud Relay',
+                      'Copy anywhere on this Mac to paste on your Android, and vice versa—completely in the background.',
                       style: TextStyle(fontSize: 12, color: Colors.white70),
                     ),
                   ],
@@ -596,92 +585,6 @@ class _DevicesView extends ConsumerWidget {
   }
 }
 
-class _ClipboardView extends ConsumerWidget {
-  const _ClipboardView();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final history = ref.watch(clipHistoryProvider);
-
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        title: const Text('Clipboard Ring Buffer'),
-        actions: [
-          if (history.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              onPressed: () => ref.read(clipHistoryProvider.notifier).clear(),
-            ),
-        ],
-      ),
-      body: ClipboardHistoryScreen(
-        clipItems: history,
-        onItemDelete: (item) => ref.read(clipHistoryProvider.notifier).remove(item.id),
-      ),
-    );
-  }
-}
-
-class _TransfersView extends ConsumerWidget {
-  const _TransfersView();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final transfers = ref.watch(transfersProvider);
-    final pairingState = ref.watch(pairingStateProvider);
-    final activeDevice = pairingState is PairingConnected ? pairingState.device : null;
-
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        title: const Text('File Transfers'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: ElevatedButton.icon(
-              onPressed: () async {
-                final file = await pickFile();
-                if (file != null) {
-                  final recipientId = activeDevice?.id ?? 'android-device-id';
-                  await DirectFileStreamer.instance.sendFile(
-                    filePath: file.path,
-                    fileName: file.name,
-                    fileSize: file.size,
-                    uid: kMacHostUid,
-                    senderId: kMacDeviceId,
-                    recipientId: recipientId,
-                    ref: ref,
-                  );
-                }
-              },
-              icon: const Icon(Icons.upload_file_rounded, size: 16),
-              label: const Text('Send File'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4F46E5),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: TransferScreen(
-        transfers: transfers,
-        onOpenFile: (id) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Opening file $id...')),
-          );
-        },
-        onCancel: (id) {
-          ref.read(transfersProvider.notifier).cancel(id);
-        },
-      ),
-    );
-  }
-}
 
 class _SettingsView extends ConsumerWidget {
   const _SettingsView();

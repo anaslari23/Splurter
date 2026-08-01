@@ -81,6 +81,32 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "splurter/foreground_service")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> {
+                        SplurterForegroundService.start(this)
+                        result.success(null)
+                    }
+                    "stop" -> {
+                        SplurterForegroundService.stop(this)
+                        result.success(null)
+                    }
+                    "setHostUid" -> {
+                        val uid = call.argument<String>("uid")
+                        getSharedPreferences("splurter_prefs", android.content.Context.MODE_PRIVATE)
+                            .edit()
+                            .putString("host_uid", uid)
+                            .apply()
+                        result.success(null)
+                    }
+                    "updateNotification" -> {
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         handleShareIntent(intent)
     }
 

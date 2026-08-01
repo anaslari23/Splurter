@@ -97,6 +97,7 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
     final localIp = await getLocalIpAddress();
     final hostUid = (pairedDevice != null && pairedDevice.address.isNotEmpty ? pairedDevice.address : user?.uid);
     if (hostUid != null) {
+      await setHostUid(hostUid);
       relay.start(uid: hostUid, deviceId: kAndroidDeviceId);
       await registerDevice(
         uid: hostUid,

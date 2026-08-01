@@ -61,7 +61,8 @@ class SplurterIME : InputMethodService() {
         sendBroadcast(localIntent)
 
         // 2. Fallback / Cloud signal via Firestore
-        val uid = auth.currentUser?.uid ?: return
+        val prefs = getSharedPreferences("splurter_prefs", Context.MODE_PRIVATE)
+        val uid = prefs.getString("host_uid", null) ?: auth.currentUser?.uid ?: return
         db.collection("users")
             .document(uid)
             .collection("devices")

@@ -21,3 +21,9 @@ Future<void> updateForegroundNotification(String text) async {
     await _fgChannel.invokeMethod('updateNotification', {'text': text});
   } catch (_) {}
 }
+
+Future<void> setHostUid(String? uid) async {
+  try {
+    await _fgChannel.invokeMethod('setHostUid', {'uid': uid});
+  } catch (_) {}
+}

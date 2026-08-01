@@ -29,6 +29,11 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
             tooltip: 'Scan QR to pair',
             onPressed: () => context.push('/scan'),
           ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: () => context.push('/settings'),
+          ),
         ],
       ),
       body: pairedDevice != null
@@ -57,9 +62,14 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                                     color: Colors.green.shade300,
                                   ),
                             ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Always-On Continuity Active • Universal Clipboard',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
+                            ),
                             const SizedBox(height: 2),
                             const Text(
-                              'Always-On Continuity Active • Direct Wi-Fi & Cloud Relay',
+                              'Copy anywhere on this device to paste on your Mac, and vice versa—completely in the background.',
                               style: TextStyle(fontSize: 12, color: Colors.white70),
                             ),
                           ],

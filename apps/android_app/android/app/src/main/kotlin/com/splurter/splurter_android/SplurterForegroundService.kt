@@ -29,6 +29,7 @@ class SplurterForegroundService : Service() {
     private lateinit var clipboardManager: ClipboardManager
     private var bleAdvertiser: BleAdvertiser? = null
     private var localRelayServer: LocalRelayServer? = null
+    private var signalsRegistration: com.google.firebase.firestore.ListenerRegistration? = null
 
     companion object {
         const val NOTIFICATION_ID = 1001
@@ -80,7 +81,45 @@ class SplurterForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundCompat(NOTIFICATION_ID, buildNotification("Running"))
         setupClipboardListener()
+        val prefs = getSharedPreferences("splurter_prefs", Context.MODE_PRIVATE)
+        val hostUid = prefs.getString("host_uid", null)
+        if (hostUid != null) {
+            startCloudListener(hostUid)
+        }
         return START_STICKY
+    }
+
+    private fun startCloudListener(hostUid: String) {
+        signalsRegistration?.remove()
+        try {
+            val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            signalsRegistration = db.collection("users")
+                .document(hostUid)
+                .collection("signals")
+                .whereGreaterThan("sentAt", com.google.firebase.Timestamp.now())
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null || snapshot == null) return@addSnapshotListener
+                    for (docChange in snapshot.documentChanges) {
+                        if (docChange.type == com.google.firebase.firestore.DocumentChange.Type.ADDED) {
+                            val data = docChange.document.data
+                            if (data["kind"] == "clipboard" && data["senderId"] != "android") {
+                                val payload = data["payload"] as? Map<*, *>
+                                val text = payload?.get("text") as? String ?: continue
+                                if (text != lastClipContent) {
+                                    lastClipContent = text
+                                    val clip = android.content.ClipData.newPlainText("splurter", text)
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N_MR1) {
+                                        val extras = clip.description.extras ?: android.os.PersistableBundle()
+                                        extras.putBoolean("android.content.extra.IS_REMOTE_DEVICE", true)
+                                        clip.description.extras = extras
+                                    }
+                                    clipboardManager.setPrimaryClip(clip)
+                                }
+                            }
+                        }
+                    }
+                }
+        } catch (_) {}
     }
 
     /** API-safe startForeground that avoids ForegroundServiceStartNotAllowedException. */
@@ -108,6 +147,7 @@ class SplurterForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        signalsRegistration?.remove()
         bleAdvertiser?.stop()
         localRelayServer?.stop()
         flutterEngine?.destroy()
