@@ -95,7 +95,7 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
     };
 
     final localIp = await getLocalIpAddress();
-    final hostUid = user?.uid ?? (pairedDevice != null && pairedDevice.address.isNotEmpty ? pairedDevice.address : null);
+    final hostUid = (pairedDevice != null && pairedDevice.address.isNotEmpty ? pairedDevice.address : user?.uid);
     if (hostUid != null) {
       relay.start(uid: hostUid, deviceId: kAndroidDeviceId);
       await registerDevice(
@@ -122,14 +122,15 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
     final user = FirebaseAuth.instance.currentUser;
     final pairingState = ref.watch(pairingStateProvider);
     final pairedDevice = pairingState is PairingConnected ? pairingState.device : null;
-    final hostUid = user?.uid ?? (pairedDevice != null && pairedDevice.address.isNotEmpty ? pairedDevice.address : null);
+    final hostUid = (pairedDevice != null && pairedDevice.address.isNotEmpty ? pairedDevice.address : user?.uid);
 
     if (hostUid != null) {
       final remoteDevicesAsync = ref.watch(remoteDevicesStreamProvider(hostUid));
       if (remoteDevicesAsync.hasValue) {
         final remoteDevices = remoteDevicesAsync.asData?.value ?? [];
-        final hasRemoteDevice = remoteDevices.any((d) => d.id != kAndroidDeviceId);
-        if (!hasRemoteDevice && pairedDevice != null) {
+        final isRegisteredInCloud = remoteDevices.any((d) => d.platform != 'macos');
+
+        if (!isRegisteredInCloud && pairedDevice != null) {
           Future.microtask(() async {
             ref.read(relayLoopProvider).stop();
             await ref.read(pairingStateProvider.notifier).unpair();

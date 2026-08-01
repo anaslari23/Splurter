@@ -66,21 +66,29 @@ class PairingNotifier extends StateNotifier<PairingState> {
   }
 
   Future<void> unpair({String? uid, String? deviceId}) async {
-    await _repository.clearPairing();
-    state = const PairingIdle();
     try {
-      final targetUid = uid ?? FirebaseAuth.instance.currentUser?.uid;
-      if (targetUid != null) {
+      final uidsToClear = {
+        if (uid != null) uid,
+        if (FirebaseAuth.instance.currentUser?.uid != null)
+          FirebaseAuth.instance.currentUser!.uid,
+        'mac-channel-1',
+      };
+      for (final targetUid in uidsToClear) {
         final devicesRef = FirebaseFirestore.instance
             .collection('users')
             .doc(targetUid)
             .collection('devices');
         final snapshot = await devicesRef.get();
         for (final doc in snapshot.docs) {
-          await doc.reference.delete();
+          final data = doc.data();
+          if (doc.id != 'mac-device-id' && data['platform'] != 'macos') {
+            await doc.reference.delete();
+          }
         }
       }
     } catch (_) {}
+    await _repository.clearPairing();
+    state = const PairingIdle();
   }
 
   void cancel() {

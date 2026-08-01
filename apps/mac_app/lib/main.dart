@@ -129,11 +129,12 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
     final history = ref.watch(clipHistoryProvider);
     final latestClip = history.isNotEmpty ? history.first.content : null;
 
-    final remoteDevicesAsync = ref.watch(remoteDevicesStreamProvider(kMacHostUid));
+    final hostUid = FirebaseAuth.instance.currentUser?.uid ?? kMacHostUid;
+    final remoteDevicesAsync = ref.watch(remoteDevicesStreamProvider(hostUid));
     final remoteDevices = remoteDevicesAsync.asData?.value ?? [];
 
     final secondaryDevice = remoteDevices.firstWhere(
-      (d) => d.id != kMacDeviceId,
+      (d) => d.platform != 'macos',
       orElse: () => const Device(
         id: '',
         name: '',
@@ -155,7 +156,7 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
         });
       } else if (!hasRemoteDevice && pairedDevice != null) {
         Future.microtask(() {
-          ref.read(pairingStateProvider.notifier).unpair(uid: kMacHostUid, deviceId: kMacDeviceId);
+          ref.read(pairingStateProvider.notifier).unpair(uid: hostUid, deviceId: kMacDeviceId);
         });
       }
     }
@@ -164,7 +165,7 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
 
     final invitationCode = PairingInvitation(
       version: RelayEnvelope.currentVersion,
-      hostUid: kMacHostUid,
+      hostUid: hostUid,
       pairId: 'pair-mac-1',
       device: PairedDevice(
         id: kMacDeviceId,
@@ -574,7 +575,8 @@ class _DevicesView extends ConsumerWidget {
               ElevatedButton.icon(
                 onPressed: () async {
                   ref.read(relayLoopProvider).stop();
-                  await ref.read(pairingStateProvider.notifier).unpair();
+                  final hostUid = FirebaseAuth.instance.currentUser?.uid ?? kMacHostUid;
+                  await ref.read(pairingStateProvider.notifier).unpair(uid: hostUid, deviceId: kMacDeviceId);
                 },
                 icon: const Icon(Icons.link_off, size: 16),
                 label: const Text('Unpair Device'),
