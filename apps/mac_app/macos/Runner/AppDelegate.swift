@@ -131,7 +131,7 @@ class AppDelegate: FlutterAppDelegate {
 
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-                let cmd = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; adb connect \(ip):\(port); \(scrcpyPath) -s \(ip):\(port) --window-title=\"Splurter Mirror - \(deviceName)\" --stay-awake --always-on-top"
+                let cmd = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; adb tcpip \(port) 2>/dev/null; adb connect \(ip):\(port) 2>/dev/null; if adb devices | grep -w \"\(ip):\(port)\" | grep -q \"device\"; then \(scrcpyPath) -s \(ip):\(port) --window-title=\"Splurter Mirror - \(deviceName)\" --stay-awake --always-on-top; else \(scrcpyPath) --window-title=\"Splurter Mirror - \(deviceName)\" --stay-awake --always-on-top; fi"
                 process.arguments = ["-c", cmd]
                 do {
                     try process.run()

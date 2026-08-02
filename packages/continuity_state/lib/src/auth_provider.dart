@@ -68,6 +68,10 @@ Future<void> registerDevice({
   String? ipAddress,
   int? port,
   String? fcmToken,
+  int? batteryLevel,
+  bool? isCharging,
+  String? carrier,
+  String? wallpaperTheme,
 }) async {
   await FirebaseFirestore.instance
       .collection('users')
@@ -81,6 +85,10 @@ Future<void> registerDevice({
     'ipAddress': ipAddress,
     'port': port ?? 53317,
     'fcmToken': fcmToken,
+    if (batteryLevel != null) 'batteryLevel': batteryLevel,
+    if (isCharging != null) 'isCharging': isCharging,
+    if (carrier != null) 'carrier': carrier,
+    if (wallpaperTheme != null) 'wallpaperTheme': wallpaperTheme,
     'registeredAt': FieldValue.serverTimestamp(),
     'lastSeen': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
@@ -105,6 +113,12 @@ final remoteDevicesStreamProvider = StreamProvider.family<List<Device>, String>(
         version: '1.0',
         capabilities: const ['clipboard', 'notifications', 'fileTransfer'],
         isPaired: true,
+        batteryLevel: data['batteryLevel'] as int? ?? 88,
+        isCharging: data['isCharging'] as bool? ?? false,
+        carrier: data['carrier'] as String? ?? '5G',
+        nowPlayingTitle: data['nowPlayingTitle'] as String?,
+        nowPlayingArtist: data['nowPlayingArtist'] as String?,
+        wallpaperTheme: data['wallpaperTheme'] as String?,
       );
     }).toList();
   });

@@ -36,6 +36,37 @@ void main() async {
   );
 }
 
+class PhoneNotificationData {
+  const PhoneNotificationData({
+    required this.appName,
+    required this.title,
+    required this.text,
+    required this.time,
+  });
+  final String appName;
+  final String title;
+  final String text;
+  final String time;
+}
+
+final latestPhoneNotificationProvider = StateProvider<PhoneNotificationData?>((ref) {
+  return null;
+});
+
+final notificationHistoryProvider = StateProvider<List<PhoneNotificationData>>((ref) => []);
+final isHistoryDrawerOpenProvider = StateProvider<bool>((ref) => false);
+final syncActivityProvider = StateProvider<String?>((ref) => null);
+final isSidebarCollapsedProvider = StateProvider<bool>((ref) => false);
+
+void _triggerSyncToast(WidgetRef ref, String msg) {
+  ref.read(syncActivityProvider.notifier).state = msg;
+  Future.delayed(const Duration(seconds: 4), () {
+    if (ref.read(syncActivityProvider) == msg) {
+      ref.read(syncActivityProvider.notifier).state = null;
+    }
+  });
+}
+
 class SplurterMacApp extends ConsumerStatefulWidget {
   const SplurterMacApp({super.key});
 
@@ -65,6 +96,24 @@ class _SplurterMacAppState extends ConsumerState<SplurterMacApp> {
       kMacHostUid = user.uid;
     }
 
+    final pairingState = ref.read(pairingStateProvider);
+    if (pairingState is! PairingConnected) {
+      for (final targetUid in {kMacHostUid, 'mac-channel-1'}) {
+        try {
+          final snap = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(targetUid)
+              .collection('devices')
+              .get();
+          for (final doc in snap.docs) {
+            if (doc.id != kMacDeviceId && doc.data()['platform'] != 'macos') {
+              await doc.reference.delete();
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
     final localIp = await getLocalIpAddress();
     final relay = ref.read(relayLoopProvider);
     relay.start(uid: kMacHostUid, deviceId: kMacDeviceId);
@@ -77,6 +126,7 @@ class _SplurterMacAppState extends ConsumerState<SplurterMacApp> {
     );
     relay.onClipboardReceived = (text) async {
       await writeClipboard(text);
+      _triggerSyncToast(ref, 'Clipboard synced via local Wi-Fi');
     };
     listenClipboardChanges().listen((clip) async {
       final snap = await FirebaseFirestore.instance
@@ -96,12 +146,64 @@ class _SplurterMacAppState extends ConsumerState<SplurterMacApp> {
         }
       }
     });
+
+    relay.onNotificationReceived = (payload) {
+      final appName = payload['appName'] as String? ?? payload['packageName'] as String? ?? 'Android';
+      final title = payload['title'] as String? ?? 'Notification';
+      final text = payload['text'] as String? ?? '';
+      final notif = PhoneNotificationData(
+        appName: appName,
+        title: title,
+        text: text,
+        time: 'now',
+      );
+      ref.read(latestPhoneNotificationProvider.notifier).state = notif;
+      ref.read(notificationHistoryProvider.notifier).state = [
+        notif,
+        ...ref.read(notificationHistoryProvider),
+      ];
+      _triggerSyncToast(ref, 'Notification mirrored ($appName)');
+    };
+
+    for (final targetUid in {kMacHostUid, 'mac-channel-1'}) {
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(targetUid)
+          .collection('signals')
+          .snapshots()
+          .listen((snap) {
+        for (final doc in snap.docChanges) {
+          if (doc.type == DocumentChangeType.added) {
+            final data = doc.doc.data();
+            if (data != null && data['kind'] == 'notification') {
+              final payload = data['payload'] as Map<String, dynamic>? ?? {};
+              final appName = payload['appName'] as String? ?? payload['packageName'] as String? ?? 'Android';
+              final title = payload['title'] as String? ?? 'Notification';
+              final text = payload['text'] as String? ?? '';
+              final notif = PhoneNotificationData(
+                appName: appName,
+                title: title,
+                text: text,
+                time: 'now',
+              );
+              ref.read(latestPhoneNotificationProvider.notifier).state = notif;
+              ref.read(notificationHistoryProvider.notifier).state = [
+                notif,
+                ...ref.read(notificationHistoryProvider),
+              ];
+              _triggerSyncToast(ref, 'Cloud notification mirrored ($appName)');
+            }
+          }
+        }
+      });
+    }
+    _triggerSyncToast(ref, 'Connected to local Wi-Fi network');
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Splurter AirSync',
+      title: 'Splurter',
       debugShowCheckedModeBanner: false,
       theme: SplurterTheme.light,
       darkTheme: SplurterTheme.dark,
@@ -124,14 +226,23 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
   @override
   Widget build(BuildContext context) {
     final isCompact = ref.watch(isCompactModeProvider);
+    final isSidebarCollapsed = ref.watch(isSidebarCollapsedProvider);
+    final notifHistory = ref.watch(notificationHistoryProvider);
+    final isHistoryDrawerOpen = ref.watch(isHistoryDrawerOpenProvider);
+    final syncActivity = ref.watch(syncActivityProvider);
     final pairingState = ref.watch(pairingStateProvider);
     final Device? pairedDevice = pairingState is PairingConnected ? pairingState.device : null;
     final history = ref.watch(clipHistoryProvider);
     final latestClip = history.isNotEmpty ? history.first.content : null;
+    final latestNotif = ref.watch(latestPhoneNotificationProvider);
 
     final hostUid = FirebaseAuth.instance.currentUser?.uid ?? kMacHostUid;
     final remoteDevicesAsync = ref.watch(remoteDevicesStreamProvider(hostUid));
-    final remoteDevices = remoteDevicesAsync.asData?.value ?? [];
+    final fallbackDevicesAsync = ref.watch(remoteDevicesStreamProvider(kMacHostUid));
+    final remoteDevices = [
+      ...?(remoteDevicesAsync.asData?.value),
+      ...?(fallbackDevicesAsync.asData?.value),
+    ];
 
     final secondaryDevice = remoteDevices.firstWhere(
       (d) => d.platform != 'macos',
@@ -149,19 +260,15 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
 
     final hasRemoteDevice = secondaryDevice.id.isNotEmpty;
 
-    if (remoteDevicesAsync.hasValue) {
-      if (hasRemoteDevice && pairedDevice == null) {
-        Future.microtask(() {
-          ref.read(pairingStateProvider.notifier).complete(secondaryDevice);
-        });
-      } else if (!hasRemoteDevice && pairedDevice != null) {
-        Future.microtask(() {
-          ref.read(pairingStateProvider.notifier).unpair(uid: hostUid, deviceId: kMacDeviceId);
-        });
-      }
+    if (hasRemoteDevice && pairedDevice == null) {
+      Future.microtask(() {
+        ref.read(pairingStateProvider.notifier).complete(secondaryDevice);
+      });
     }
 
-    final activeDevice = (hasRemoteDevice && pairedDevice != null) ? pairedDevice : (hasRemoteDevice ? secondaryDevice : null);
+    final activeDevice = pairedDevice == null
+        ? null
+        : (hasRemoteDevice ? secondaryDevice.copyWith(isPaired: true) : pairedDevice);
 
     final invitationCode = PairingInvitation(
       version: RelayEnvelope.currentVersion,
@@ -218,6 +325,13 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
                   child: PhoneMockupWidget(
                     device: activeDevice,
                     latestClipboardText: latestClip,
+                    notificationAppName: latestNotif?.appName,
+                    notificationTitle: latestNotif?.title,
+                    notificationText: latestNotif?.text,
+                    notificationTime: latestNotif?.time,
+                    onNotificationDismiss: () {
+                      ref.read(latestPhoneNotificationProvider.notifier).state = null;
+                    },
                     width: 260,
                     height: 510,
                     onMirrorTap: () async {
@@ -255,8 +369,11 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
       body: Row(
         children: [
           // Left Sidebar Pane with Interactive Phone Frame (AirSync Style)
-          Container(
-            width: 295,
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            width: isSidebarCollapsed ? 0 : 270,
+            clipBehavior: Clip.hardEdge,
             decoration: BoxDecoration(
               color: const Color(0xFF0F172A).withValues(alpha: 0.95),
               border: const Border(
@@ -285,7 +402,7 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'AirSync',
+                            'Splurter',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 16,
@@ -324,6 +441,13 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
                         PhoneMockupWidget(
                           device: activeDevice,
                           latestClipboardText: latestClip,
+                          notificationAppName: latestNotif?.appName,
+                          notificationTitle: latestNotif?.title,
+                          notificationText: latestNotif?.text,
+                          notificationTime: latestNotif?.time,
+                          onNotificationDismiss: () {
+                            ref.read(latestPhoneNotificationProvider.notifier).state = null;
+                          },
                           width: 245,
                           height: 485,
                           onMirrorTap: () async {
@@ -393,61 +517,133 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
                   decoration: const BoxDecoration(
                     border: Border(bottom: BorderSide(color: Color(0xFF1E293B), width: 1)),
                   ),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _NavTabButton(
-                          icon: Icons.devices_rounded,
-                          label: 'Devices',
-                          isSelected: _selectedTabIndex == 0,
-                          onTap: () => setState(() => _selectedTabIndex = 0),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          isSidebarCollapsed ? Icons.menu_rounded : Icons.menu_open_rounded,
+                          color: Colors.white70,
+                          size: 18,
                         ),
-                        const SizedBox(width: 6),
-                        _NavTabButton(
-                          icon: Icons.settings_rounded,
-                          label: 'Settings',
-                          isSelected: _selectedTabIndex == 1,
-                          onTap: () => setState(() => _selectedTabIndex = 1),
-                        ),
-                        if (activeDevice != null) ...[
-                          const SizedBox(width: 12),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.check_circle, color: Colors.greenAccent, size: 12),
-                                const SizedBox(width: 6),
-                                Text(
-                                  activeDevice.name,
-                                  style: const TextStyle(
-                                    color: Colors.greenAccent,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
+                        tooltip: isSidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar',
+                        onPressed: () => ref.read(isSidebarCollapsedProvider.notifier).state = !isSidebarCollapsed,
+                      ),
+                      const SizedBox(width: 8),
+                      _NavTabButton(
+                        icon: Icons.devices_rounded,
+                        label: 'Devices',
+                        isSelected: _selectedTabIndex == 0,
+                        onTap: () => setState(() => _selectedTabIndex = 0),
+                      ),
+                      const SizedBox(width: 6),
+                      _NavTabButton(
+                        icon: Icons.settings_rounded,
+                        label: 'Settings',
+                        isSelected: _selectedTabIndex == 1,
+                        onTap: () => setState(() => _selectedTabIndex = 1),
+                      ),
+                      if (activeDevice != null) ...[
+                        const SizedBox(width: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
                           ),
-                        ],
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.check_circle, color: Colors.greenAccent, size: 12),
+                              const SizedBox(width: 6),
+                              Text(
+                                activeDevice.name,
+                                style: const TextStyle(
+                                  color: Colors.greenAccent,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
-                    ),
+                      if (syncActivity != null) ...[
+                        const SizedBox(width: 16),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.5)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.sync_rounded, color: Color(0xFF34D399), size: 14),
+                              const SizedBox(width: 6),
+                              Text(
+                                syncActivity,
+                                style: const TextStyle(
+                                  color: Color(0xFF34D399),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const Spacer(),
+                      IconButton(
+                        icon: Badge(
+                          isLabelVisible: notifHistory.isNotEmpty,
+                          label: Text('${notifHistory.length}', style: const TextStyle(fontSize: 10)),
+                          child: Icon(
+                            Icons.notifications_rounded,
+                            color: isHistoryDrawerOpen ? const Color(0xFF818CF8) : Colors.white70,
+                            size: 18,
+                          ),
+                        ),
+                        tooltip: 'Notification History',
+                        onPressed: () => ref.read(isHistoryDrawerOpenProvider.notifier).state = !isHistoryDrawerOpen,
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.aspect_ratio_rounded, color: Colors.white70, size: 18),
+                        tooltip: 'Float Compact Mode',
+                        onPressed: () => ref.read(isCompactModeProvider.notifier).state = true,
+                      ),
+                    ],
                   ),
                 ),
 
                 // Dynamic Body View
                 Expanded(
-                  child: IndexedStack(
-                    index: _selectedTabIndex,
+                  child: Stack(
                     children: [
-                      _DevicesView(activeDevice: activeDevice, invitationCode: invitationCode),
-                      const _SettingsView(),
+                      IndexedStack(
+                        index: _selectedTabIndex,
+                        children: [
+                          _DevicesView(
+                            activeDevice: activeDevice,
+                            invitationCode: invitationCode,
+                            discoveredDevices: remoteDevices,
+                          ),
+                          const _SettingsView(),
+                        ],
+                      ),
+                      if (isHistoryDrawerOpen)
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: _NotificationHistoryDrawer(
+                            history: notifHistory,
+                            onClose: () => ref.read(isHistoryDrawerOpenProvider.notifier).state = false,
+                            onClear: () => ref.read(notificationHistoryProvider.notifier).state = [],
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -511,15 +707,24 @@ class _NavTabButton extends StatelessWidget {
 }
 
 class _DevicesView extends ConsumerWidget {
-  const _DevicesView({required this.activeDevice, required this.invitationCode});
+  const _DevicesView({
+    required this.activeDevice,
+    required this.invitationCode,
+    required this.discoveredDevices,
+  });
 
   final Device? activeDevice;
   final String invitationCode;
+  final List<Device> discoveredDevices;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (activeDevice == null) {
-      return PairingScreen(pairingCode: invitationCode);
+      return PairingScreen(
+        pairingCode: invitationCode,
+        discoveredDevices: discoveredDevices,
+        onDeviceSelected: (dev) => ref.read(pairingStateProvider.notifier).complete(dev),
+      );
     }
 
     return ListView(
@@ -609,6 +814,149 @@ class _SettingsView extends ConsumerWidget {
             onChanged: (val) {
               ref.read(clipboardSyncEnabledProvider.notifier).state = val;
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotificationHistoryDrawer extends StatelessWidget {
+  const _NotificationHistoryDrawer({
+    required this.history,
+    required this.onClose,
+    required this.onClear,
+  });
+
+  final List<PhoneNotificationData> history;
+  final VoidCallback onClose;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 320,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A).withValues(alpha: 0.98),
+        border: const Border(left: BorderSide(color: Color(0xFF1E293B))),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 20,
+            offset: const Offset(-4, 0),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.history_rounded, color: Color(0xFF818CF8), size: 18),
+                const SizedBox(width: 8),
+                const Text(
+                  'Notification History',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const Spacer(),
+                if (history.isNotEmpty)
+                  TextButton(
+                    onPressed: onClear,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Clear all', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                  ),
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 18),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Close',
+                  onPressed: onClose,
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: history.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.notifications_none_rounded, color: Colors.white24, size: 40),
+                        SizedBox(height: 12),
+                        Text('No recent notifications', style: TextStyle(color: Colors.white38, fontSize: 13)),
+                      ],
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: history.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final item = history[index];
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B).withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    item.appName,
+                                    style: const TextStyle(
+                                      color: Color(0xFF818CF8),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                const Spacer(),
+                                Text(
+                                  item.time,
+                                  style: const TextStyle(color: Colors.white38, fontSize: 10),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              item.title,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            if (item.text.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                item.text,
+                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),

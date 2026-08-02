@@ -12,6 +12,7 @@ class NotificationListener : NotificationListenerService() {
 
     companion object {
         const val CHANNEL_NAME = "splurter/notifications"
+        var instance: NotificationListener? = null
     }
 
     private var flutterEngine: FlutterEngine? = null
@@ -33,7 +34,18 @@ class NotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        // Listen for active notifications so we can dispatch them to Dart
+        instance = this
+        syncActiveNotifications()
+    }
+
+    fun syncActiveNotifications() {
+        try {
+            activeNotifications?.forEach { sbn ->
+                onNotificationPosted(sbn)
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -79,6 +91,50 @@ class NotificationListener : NotificationListenerService() {
             )
 
             channel?.invokeMethod("onNotificationPosted", payload)
+
+            // Send notification signal directly to Firestore so macOS receives it even when Flutter is in background
+            try {
+                val prefs = getSharedPreferences("splurter_prefs", android.content.Context.MODE_PRIVATE)
+                val hostUid = prefs.getString("host_uid", null)
+                if (hostUid != null) {
+                    val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    db.collection("users")
+                        .document(hostUid)
+                        .collection("signals")
+                        .add(
+                            mapOf(
+                                "version" to 1,
+                                "senderId" to "android",
+                                "recipientId" to "broadcast",
+                                "kind" to "notification",
+                                "payload" to payload,
+                                "sentAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                            )
+                        )
+                }
+
+                val isMedia = packageName.contains("music", true) ||
+                        packageName.contains("spotify", true) ||
+                        packageName.contains("audio", true) ||
+                        packageName.contains("player", true) ||
+                        packageName.contains("podcast", true) ||
+                        packageName.contains("soundcloud", true) ||
+                        extras.containsKey(Notification.EXTRA_MEDIA_SESSION)
+
+                if (isMedia && title.isNotEmpty() && hostUid != null) {
+                    val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    db.collection("users")
+                        .document(hostUid)
+                        .collection("devices")
+                        .document("android-device-id")
+                        .set(mapOf(
+                            "nowPlayingTitle" to title,
+                            "nowPlayingArtist" to text
+                        ), com.google.firebase.firestore.SetOptions.merge())
+                }
+            } catch (e: Exception) {
+                // Ignore Firestore write failures if offline
+            }
         }
     }
 
@@ -90,10 +146,35 @@ class NotificationListener : NotificationListenerService() {
                 "packageName" to it.packageName
             )
             channel?.invokeMethod("onNotificationRemoved", payload)
+
+            try {
+                val isMedia = it.packageName.contains("music", true) ||
+                        it.packageName.contains("spotify", true) ||
+                        it.packageName.contains("audio", true) ||
+                        it.packageName.contains("player", true) ||
+                        it.packageName.contains("podcast", true) ||
+                        it.packageName.contains("soundcloud", true)
+                if (isMedia) {
+                    val prefs = getSharedPreferences("splurter_prefs", android.content.Context.MODE_PRIVATE)
+                    val hostUid = prefs.getString("host_uid", null)
+                    if (hostUid != null) {
+                        val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                        db.collection("users")
+                            .document(hostUid)
+                            .collection("devices")
+                            .document("android-device-id")
+                            .set(mapOf(
+                                "nowPlayingTitle" to null,
+                                "nowPlayingArtist" to null
+                            ), com.google.firebase.firestore.SetOptions.merge())
+                    }
+                }
+            } catch (e: Exception) {}
         }
     }
 
     override fun onDestroy() {
+        if (instance == this) instance = null
         super.onDestroy()
         flutterEngine?.destroy()
         flutterEngine = null

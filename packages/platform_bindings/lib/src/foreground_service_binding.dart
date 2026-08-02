@@ -27,3 +27,11 @@ Future<void> setHostUid(String? uid) async {
     await _fgChannel.invokeMethod('setHostUid', {'uid': uid});
   } catch (_) {}
 }
+
+Future<String?> getHostUid() async {
+  try {
+    return await _fgChannel.invokeMethod<String>('getHostUid');
+  } catch (_) {
+    return null;
+  }
+}

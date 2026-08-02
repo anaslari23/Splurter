@@ -119,7 +119,7 @@ class SplurterForegroundService : Service() {
                         }
                     }
                 }
-        } catch (_) {}
+        } catch (_: Exception) {}
     }
 
     /** API-safe startForeground that avoids ForegroundServiceStartNotAllowedException. */

@@ -49,6 +49,49 @@ class MainActivity : FlutterActivity() {
                             "batteryExempt" to batteryExempt
                         ))
                     }
+                    "getDeviceAesthetics" -> {
+                        var batteryLevel = 88
+                        var isCharging = false
+                        try {
+                            val bm = getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager
+                            batteryLevel = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                            val ifilter = android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+                            val batteryStatus = registerReceiver(null, ifilter)
+                            val status = batteryStatus?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
+                            isCharging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING || status == android.os.BatteryManager.BATTERY_STATUS_FULL
+                        } catch (e: Exception) {}
+
+                        var carrierName = "5G"
+                        try {
+                            val tm = getSystemService(android.content.Context.TELEPHONY_SERVICE) as android.telephony.TelephonyManager
+                            carrierName = tm.networkOperatorName.takeIf { !it.isNullOrEmpty() } ?: "5G"
+                        } catch (e: Exception) {}
+
+                        var wallpaperTheme = "aurora"
+                        try {
+                            val wm = android.app.WallpaperManager.getInstance(this)
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                                val colors = wm.getWallpaperColors(android.app.WallpaperManager.FLAG_SYSTEM)
+                                val primary = colors?.primaryColor
+                                if (primary != null) {
+                                    val r = android.graphics.Color.red(primary.toArgb())
+                                    val g = android.graphics.Color.green(primary.toArgb())
+                                    val b = android.graphics.Color.blue(primary.toArgb())
+                                    if (g > r && g > b) wallpaperTheme = "emerald"
+                                    else if (r > b && r > g) wallpaperTheme = "sunset"
+                                    else if (r < 60 && g < 60 && b < 80) wallpaperTheme = "dark"
+                                }
+                            }
+                        } catch (e: Exception) {}
+
+                        result.success(mapOf(
+                            "batteryLevel" to batteryLevel,
+                            "isCharging" to isCharging,
+                            "carrier" to carrierName,
+                            "wallpaperTheme" to wallpaperTheme,
+                            "deviceName" to (android.os.Build.MODEL ?: "Android Phone")
+                        ))
+                    }
                     "openNotificationListenerSettings" -> {
                         startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                         result.success(null)
@@ -100,7 +143,30 @@ class MainActivity : FlutterActivity() {
                             .apply()
                         result.success(null)
                     }
+                    "getHostUid" -> {
+                        val uid = getSharedPreferences("splurter_prefs", android.content.Context.MODE_PRIVATE)
+                            .getString("host_uid", null)
+                        result.success(uid)
+                    }
                     "updateNotification" -> {
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "splurter/notifications")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "requestPermission" -> {
+                        startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        result.success(null)
+                    }
+                    "dismiss" -> {
+                        result.success(null)
+                    }
+                    "syncActiveNotifications" -> {
+                        NotificationListener.instance?.syncActiveNotifications()
                         result.success(null)
                     }
                     else -> result.notImplemented()

@@ -9,8 +9,17 @@ class PhoneMockupWidget extends StatefulWidget {
     this.latestClipboardText,
     this.batteryLevel = 88,
     this.isCharging = false,
+    this.carrier = '5G',
+    this.nowPlayingTitle,
+    this.nowPlayingArtist,
+    this.notificationAppName,
+    this.notificationTitle,
+    this.notificationText,
+    this.notificationTime,
     this.onMirrorTap,
     this.onCopyTap,
+    this.onNotificationTap,
+    this.onNotificationDismiss,
     this.width = 240,
     this.height = 490,
   });
@@ -19,8 +28,17 @@ class PhoneMockupWidget extends StatefulWidget {
   final String? latestClipboardText;
   final int batteryLevel;
   final bool isCharging;
+  final String carrier;
+  final String? nowPlayingTitle;
+  final String? nowPlayingArtist;
+  final String? notificationAppName;
+  final String? notificationTitle;
+  final String? notificationText;
+  final String? notificationTime;
   final VoidCallback? onMirrorTap;
   final VoidCallback? onCopyTap;
+  final VoidCallback? onNotificationTap;
+  final VoidCallback? onNotificationDismiss;
   final double width;
   final double height;
 
@@ -31,6 +49,27 @@ class PhoneMockupWidget extends StatefulWidget {
 class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
   late Timer _clockTimer;
   DateTime _currentTime = DateTime.now();
+  bool _isNotificationDismissed = false;
+
+  IconData _getAppIcon(String? appName) {
+    final name = (appName ?? '').toLowerCase();
+    if (name.contains('message') || name.contains('chat') || name.contains('sms')) {
+      return Icons.chat_bubble;
+    }
+    if (name.contains('mail') || name.contains('gmail')) {
+      return Icons.mail;
+    }
+    if (name.contains('whatsapp') || name.contains('telegram') || name.contains('signal')) {
+      return Icons.send;
+    }
+    if (name.contains('call') || name.contains('phone')) {
+      return Icons.phone;
+    }
+    if (name.contains('calendar') || name.contains('event')) {
+      return Icons.calendar_today;
+    }
+    return Icons.notifications_active;
+  }
 
   @override
   void initState() {
@@ -56,10 +95,29 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
     return '$hour:$minute';
   }
 
+  List<Color> _getWallpaperColors(String? theme) {
+    switch (theme) {
+      case 'emerald':
+        return const [Color(0xFF064E3B), Color(0xFF065F46), Color(0xFF0F172A), Color(0xFF0369A1)];
+      case 'sunset':
+        return const [Color(0xFF7C2D12), Color(0xFF9A3412), Color(0xFF1E1B4B), Color(0xFF4C1D95)];
+      case 'dark':
+        return const [Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0B0F17), Color(0xFF111827)];
+      default:
+        return const [Color(0xFF4C1D95), Color(0xFF1E1B4B), Color(0xFF0F172A), Color(0xFF0369A1)];
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isConnected = widget.device != null && widget.device!.isPaired;
     final deviceName = widget.device?.name ?? 'Android Phone';
+    final int effectiveBattery = widget.device?.batteryLevel ?? widget.batteryLevel;
+    final bool effectiveCharging = widget.device?.isCharging ?? widget.isCharging;
+    final String effectiveCarrier = widget.device?.carrier ?? widget.carrier;
+    final String? effectiveTitle = widget.device?.nowPlayingTitle ?? widget.nowPlayingTitle;
+    final String? effectiveArtist = widget.device?.nowPlayingArtist ?? widget.nowPlayingArtist;
+    final wallpaperColors = _getWallpaperColors(widget.device?.wallpaperTheme);
 
     return Container(
       width: widget.width,
@@ -88,24 +146,54 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
         borderRadius: BorderRadius.circular(26),
         child: Stack(
           children: [
-            // Wallpaper Background Gradient
+            // Dynamic Wallpaper Theme Gradient
             Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [
-                    Color(0xFF1E1B4B),
-                    Color(0xFF0F172A),
-                    Color(0xFF0284C7),
-                  ],
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
+                  colors: wallpaperColors,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+            ),
+            Positioned(
+              top: -40,
+              right: -40,
+              child: Container(
+                width: 140,
+                height: 140,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      const Color(0xFFEC4899).withValues(alpha: 0.35),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: 40,
+              left: -30,
+              child: Container(
+                width: 130,
+                height: 130,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      const Color(0xFF38BDF8).withValues(alpha: 0.35),
+                      Colors.transparent,
+                    ],
+                  ),
                 ),
               ),
             ),
 
             // Subtle Glass Overlay
             Container(
-              color: Colors.black.withValues(alpha: 0.25),
+              color: Colors.black.withValues(alpha: 0.2),
             ),
 
             // Content Column
@@ -141,15 +229,24 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
                       // Battery & Wifi icons
                       Row(
                         children: [
+                          Text(
+                            effectiveCarrier,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
                           const Icon(Icons.wifi, size: 13, color: Colors.white),
                           const SizedBox(width: 4),
                           Icon(
-                            widget.isCharging ? Icons.battery_charging_full : Icons.battery_std,
+                            effectiveCharging ? Icons.battery_charging_full : Icons.battery_std,
                             size: 14,
                             color: Colors.greenAccent,
                           ),
                           Text(
-                            ' ${widget.batteryLevel}%',
+                            ' $effectiveBattery%',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 10,
@@ -192,6 +289,222 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
                     ],
                   ),
                 ),
+
+                // Live Android Lock Screen Notification Card
+                if (widget.notificationTitle != null &&
+                    widget.notificationTitle!.isNotEmpty &&
+                    !_isNotificationDismissed)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14, left: 14, right: 14),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B).withValues(alpha: 0.88),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 20,
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF3B82F6), Color(0xFF6366F1)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Icon(
+                                  _getAppIcon(widget.notificationAppName),
+                                  size: 11,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  widget.notificationAppName ?? 'Messages',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Text(
+                                widget.notificationTime ?? 'now',
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 10,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _isNotificationDismissed = true;
+                                  });
+                                  widget.onNotificationDismiss?.call();
+                                },
+                                child: const Icon(
+                                  Icons.close,
+                                  size: 14,
+                                  color: Colors.white54,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            widget.notificationTitle!,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (widget.notificationText != null &&
+                              widget.notificationText!.isNotEmpty) ...[
+                            const SizedBox(height: 3),
+                            Text(
+                              widget.notificationText!,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                                height: 1.25,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF3B82F6).withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFF60A5FA).withValues(alpha: 0.3),
+                                  ),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.reply,
+                                      size: 11,
+                                      color: Color(0xFF93C5FD),
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Reply',
+                                      style: TextStyle(
+                                        color: Color(0xFF93C5FD),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Text(
+                                  'Mark as read',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Now Playing Media Widget Pill ONLY when media is active on phone
+                if (isConnected && effectiveTitle != null && effectiveTitle.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12, left: 14, right: 14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFFEC4899), Color(0xFF8B5CF6)]),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.music_note, color: Colors.white, size: 18),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  effectiveTitle,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  effectiveArtist ?? 'Splurter Continuity',
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 10,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.pause_circle_filled, color: Colors.white, size: 22),
+                        ],
+                      ),
+                    ),
+                  ),
 
                 const Spacer(),
 

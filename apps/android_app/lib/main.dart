@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:continuity_core/continuity_core.dart';
 import 'package:shared_types/shared_types.dart';
 import 'package:continuity_ui/continuity_ui.dart';
 import 'package:continuity_state/continuity_state.dart';
@@ -69,6 +72,7 @@ class SplurterApp extends ConsumerStatefulWidget {
 class _SplurterAppState extends ConsumerState<SplurterApp> {
   bool _batteryExemptRequested = false;
   static const _batteryChannel = MethodChannel('splurter/battery_optimization');
+  Timer? _aestheticsTimer;
 
   @override
   void initState() {
@@ -78,6 +82,41 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
     });
   }
 
+  @override
+  void dispose() {
+    _aestheticsTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _syncAesthetics(String hostUid, String? localIp) async {
+    final targetUids = {hostUid};
+    for (final uid in targetUids) {
+      try {
+        final status = await const MethodChannel('splurter/permissions').invokeMapMethod<String, dynamic>('getDeviceAesthetics');
+        final deviceName = status?['deviceName'] as String? ?? 'Android Phone';
+        await registerDevice(
+          uid: uid,
+          deviceId: kAndroidDeviceId,
+          platform: 'android',
+          name: deviceName,
+          ipAddress: localIp,
+          batteryLevel: status?['batteryLevel'] as int? ?? 88,
+          isCharging: status?['isCharging'] as bool? ?? false,
+          carrier: status?['carrier'] as String? ?? '5G',
+          wallpaperTheme: status?['wallpaperTheme'] as String? ?? 'aurora',
+        );
+      } catch (_) {
+        await registerDevice(
+          uid: uid,
+          deviceId: kAndroidDeviceId,
+          platform: 'android',
+          name: 'Android Phone',
+          ipAddress: localIp,
+        );
+      }
+    }
+  }
+
   Future<void> _bootRelay() async {
     try {
       if (FirebaseAuth.instance.currentUser == null) {
@@ -85,7 +124,6 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
       }
     } catch (_) {}
 
-    final user = FirebaseAuth.instance.currentUser;
     final pairingState = ref.read(pairingStateProvider);
     final pairedDevice = pairingState is PairingConnected ? pairingState.device : null;
 
@@ -95,20 +133,45 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
     };
 
     final localIp = await getLocalIpAddress();
-    final hostUid = (pairedDevice != null && pairedDevice.address.isNotEmpty ? pairedDevice.address : user?.uid);
-    if (hostUid != null) {
-      await setHostUid(hostUid);
-      relay.start(uid: hostUid, deviceId: kAndroidDeviceId);
-      await registerDevice(
-        uid: hostUid,
-        deviceId: kAndroidDeviceId,
-        platform: 'android',
-        name: 'Android Device',
-        ipAddress: localIp,
-      );
+    final savedHostUid = await getHostUid();
+    final hostUid = savedHostUid ?? (pairedDevice != null && pairedDevice.address.isNotEmpty ? pairedDevice.address : null) ?? FirebaseAuth.instance.currentUser?.uid ?? 'mac-channel-1';
+    await setHostUid(hostUid);
+    relay.start(uid: hostUid, deviceId: kAndroidDeviceId);
+    if (pairedDevice != null) {
+      await _syncAesthetics(hostUid, localIp);
+      _aestheticsTimer?.cancel();
+      _aestheticsTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        _syncAesthetics(hostUid, localIp);
+      });
     }
 
+    const MethodChannel('splurter/notifications').setMethodCallHandler((call) async {
+      if (call.method == 'onNotificationPosted') {
+        final payload = Map<String, dynamic>.from(call.arguments as Map? ?? {});
+        final relay = ref.read(relayLoopProvider);
+        if (relay.isConnected && relay.currentUid != null && relay.currentUid!.isNotEmpty) {
+          final snap = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(relay.currentUid!)
+              .collection('devices')
+              .get();
+          for (final doc in snap.docs) {
+            if (doc.id != kAndroidDeviceId) {
+              await relay.send(
+                uid: relay.currentUid!,
+                senderId: kAndroidDeviceId,
+                recipientId: doc.id,
+                kind: RelayKind.notification,
+                payload: payload,
+              );
+            }
+          }
+        }
+      }
+    });
+
     startForegroundService();
+    const MethodChannel('splurter/notifications').invokeMethod('syncActiveNotifications').ignore();
 
 
     // Request battery exemption once — opens the direct system dialog
@@ -135,6 +198,7 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
           Future.microtask(() async {
             ref.read(relayLoopProvider).stop();
             await ref.read(pairingStateProvider.notifier).unpair();
+            await setHostUid(null);
           });
         }
       }

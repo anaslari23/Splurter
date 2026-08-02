@@ -20,6 +20,9 @@ class RelayLoop {
   String? _deviceId;
   final _db = FirebaseFirestore.instance;
 
+  String? get currentUid => _uid;
+  bool get isConnected => _sub != null;
+
   // Callbacks set by feature providers / main.dart
   void Function(String text)? onClipboardReceived;
   void Function(Map<String, dynamic> notif)? onNotificationReceived;

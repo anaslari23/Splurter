@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -54,12 +55,29 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
 
             // Register this Android device under the Mac's host UID so the Mac
             // recognizes it instantly in its real-time stream.
-            await registerDevice(
-              uid: invitation.hostUid,
-              deviceId: kAndroidDeviceId,
-              platform: 'android',
-              name: 'Android Device',
-            );
+            final localIp = await getLocalIpAddress();
+            try {
+              final status = await const MethodChannel('splurter/permissions').invokeMapMethod<String, dynamic>('getDeviceAesthetics');
+              await registerDevice(
+                uid: invitation.hostUid,
+                deviceId: kAndroidDeviceId,
+                platform: 'android',
+                name: 'Android Device',
+                ipAddress: localIp,
+                batteryLevel: status?['batteryLevel'] as int? ?? 88,
+                isCharging: status?['isCharging'] as bool? ?? false,
+                carrier: status?['carrier'] as String? ?? '5G',
+                wallpaperTheme: status?['wallpaperTheme'] as String? ?? 'aurora',
+              );
+            } catch (_) {
+              await registerDevice(
+                uid: invitation.hostUid,
+                deviceId: kAndroidDeviceId,
+                platform: 'android',
+                name: 'Android Device',
+                ipAddress: localIp,
+              );
+            }
           }
 
           await ref.read(pairingStateProvider.notifier).complete(device);

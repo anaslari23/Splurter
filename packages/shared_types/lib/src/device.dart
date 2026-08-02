@@ -9,6 +9,12 @@ class Device {
     required this.capabilities,
     required this.isPaired,
     this.fingerprint,
+    this.batteryLevel = 88,
+    this.isCharging = false,
+    this.carrier = '5G',
+    this.nowPlayingTitle,
+    this.nowPlayingArtist,
+    this.wallpaperTheme,
   });
 
   final String id;
@@ -20,6 +26,12 @@ class Device {
   final List<String> capabilities; // ['clipboard', 'transfer', 'screen', ...]
   final bool isPaired;
   final String? fingerprint;
+  final int batteryLevel;
+  final bool isCharging;
+  final String carrier;
+  final String? nowPlayingTitle;
+  final String? nowPlayingArtist;
+  final String? wallpaperTheme;
 
   Device copyWith({
     String? id,
@@ -31,6 +43,12 @@ class Device {
     List<String>? capabilities,
     bool? isPaired,
     String? fingerprint,
+    int? batteryLevel,
+    bool? isCharging,
+    String? carrier,
+    String? nowPlayingTitle,
+    String? nowPlayingArtist,
+    String? wallpaperTheme,
   }) {
     return Device(
       id: id ?? this.id,
@@ -42,6 +60,12 @@ class Device {
       capabilities: capabilities ?? this.capabilities,
       isPaired: isPaired ?? this.isPaired,
       fingerprint: fingerprint ?? this.fingerprint,
+      batteryLevel: batteryLevel ?? this.batteryLevel,
+      isCharging: isCharging ?? this.isCharging,
+      carrier: carrier ?? this.carrier,
+      nowPlayingTitle: nowPlayingTitle ?? this.nowPlayingTitle,
+      nowPlayingArtist: nowPlayingArtist ?? this.nowPlayingArtist,
+      wallpaperTheme: wallpaperTheme ?? this.wallpaperTheme,
     );
   }
 
@@ -55,6 +79,12 @@ class Device {
     'capabilities': capabilities,
     'isPaired': isPaired,
     'fingerprint': fingerprint,
+    'batteryLevel': batteryLevel,
+    'isCharging': isCharging,
+    'carrier': carrier,
+    'nowPlayingTitle': nowPlayingTitle,
+    'nowPlayingArtist': nowPlayingArtist,
+    'wallpaperTheme': wallpaperTheme,
   };
 
   factory Device.fromJson(Map<String, dynamic> json) => Device(
@@ -67,6 +97,12 @@ class Device {
     capabilities: List<String>.from(json['capabilities'] as List),
     isPaired: json['isPaired'] as bool? ?? false,
     fingerprint: json['fingerprint'] as String?,
+    batteryLevel: json['batteryLevel'] as int? ?? 88,
+    isCharging: json['isCharging'] as bool? ?? false,
+    carrier: json['carrier'] as String? ?? '5G',
+    nowPlayingTitle: json['nowPlayingTitle'] as String?,
+    nowPlayingArtist: json['nowPlayingArtist'] as String?,
+    wallpaperTheme: json['wallpaperTheme'] as String?,
   );
 
   @override
