@@ -98,13 +98,12 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
   List<Color> _getWallpaperColors(String? theme) {
     switch (theme) {
       case 'emerald':
-        return const [Color(0xFF064E3B), Color(0xFF065F46), Color(0xFF0F172A), Color(0xFF0369A1)];
+        return const [Color(0xFF064E3B), Color(0xFF022C22), Color(0xFF0D1117), Color(0xFF065F46)];
       case 'sunset':
-        return const [Color(0xFF7C2D12), Color(0xFF9A3412), Color(0xFF1E1B4B), Color(0xFF4C1D95)];
+        return const [Color(0xFF3B1E14), Color(0xFF1F110B), Color(0xFF0D1117), Color(0xFF2E1710)];
       case 'dark':
-        return const [Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0B0F17), Color(0xFF111827)];
       default:
-        return const [Color(0xFF4C1D95), Color(0xFF1E1B4B), Color(0xFF0F172A), Color(0xFF0369A1)];
+        return const [Color(0xFF0D1117), Color(0xFF161B22), Color(0xFF090C10), Color(0xFF1F2428)];
     }
   }
 
@@ -156,41 +155,6 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
                 ),
               ),
             ),
-            Positioned(
-              top: -40,
-              right: -40,
-              child: Container(
-                width: 140,
-                height: 140,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      const Color(0xFFEC4899).withValues(alpha: 0.35),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: 40,
-              left: -30,
-              child: Container(
-                width: 130,
-                height: 130,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      const Color(0xFF38BDF8).withValues(alpha: 0.35),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
             // Subtle Glass Overlay
             Container(
               color: Colors.black.withValues(alpha: 0.2),
@@ -448,6 +412,77 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
                           ),
                         ],
                       ),
+                    ),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14, left: 14, right: 14),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E293B).withValues(alpha: 0.75),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.notifications_none_rounded, color: Colors.white54, size: 16),
+                              SizedBox(width: 8),
+                              Text(
+                                'No notifications',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (isConnected) ...[
+                          const SizedBox(height: 8),
+                          InkWell(
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Open Splurter on Android -> tap Settings or Continuity Permissions -> Grant Notification Access Permission',
+                                  ),
+                                ),
+                              );
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade900.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: Colors.amber.shade400.withValues(alpha: 0.35)),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.shield_outlined, color: Colors.amberAccent, size: 13),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'To mirror notifications, allow Notification Access in Splurter Android app.',
+                                      style: TextStyle(
+                                        color: Colors.amberAccent,
+                                        fontSize: 10,
+                                        height: 1.25,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
 

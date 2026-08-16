@@ -58,21 +58,40 @@ class SettingsScreen extends ConsumerWidget {
                   }
                   ref.read(notificationsEnabledProvider.notifier).state = v;
                 },
-                title: const Text('Notification Mirroring'),
+                title: const Text('Notification Mirroring Toggle'),
                 subtitle: const Text('Relay Android notifications to Mac desktop'),
               ),
               ListTile(
-                leading: const Icon(Icons.battery_saver),
-                title: const Text('Battery Optimization Exemption'),
-                subtitle: const Text('Prevent Android from stopping background relay'),
+                leading: const Icon(Icons.notifications_active_outlined, color: Colors.amber),
+                title: const Text('Grant Notification Access Permission'),
+                subtitle: const Text('Directly open Android Settings to enable Notification Mirroring'),
                 trailing: const Icon(Icons.open_in_new),
                 onTap: () async {
-                  await startForegroundService();
+                  await openNotificationListenerSettings();
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Foreground sync service activated')),
+                      const SnackBar(content: Text('Opening Notification Access Settings...')),
                     );
                   }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.keyboard_outlined, color: Colors.amber),
+                title: const Text('Grant Keyboard & Clipboard Permission'),
+                subtitle: const Text('Directly open Android Settings to enable Splurter Keyboard Service'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () async {
+                  await openInputMethodSettings();
+                  await showInputMethodPicker();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.battery_charging_full_outlined, color: Colors.amber),
+                title: const Text('Grant Unrestricted Battery Permission'),
+                subtitle: const Text('Directly open Android Settings to prevent background sync from sleeping'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () async {
+                  await requestBatteryExemption();
                 },
               ),
             ],

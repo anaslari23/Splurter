@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -57,6 +58,21 @@ final notificationHistoryProvider = StateProvider<List<PhoneNotificationData>>((
 final isHistoryDrawerOpenProvider = StateProvider<bool>((ref) => false);
 final syncActivityProvider = StateProvider<String?>((ref) => null);
 final isSidebarCollapsedProvider = StateProvider<bool>((ref) => false);
+
+bool _isIgnoredSystemNotif(String appName, String title) {
+  final lowerApp = appName.toLowerCase();
+  final lowerTitle = title.toLowerCase();
+  if (lowerApp == 'system ui' || lowerApp == 'android system' || lowerApp == 'android' || lowerApp == 'settings') {
+    return true;
+  }
+  if (lowerTitle.contains('adaptive charging') ||
+      lowerTitle.contains('usb debugging') ||
+      lowerTitle.contains('charging steadily') ||
+      lowerTitle.contains('battery full by')) {
+    return true;
+  }
+  return false;
+}
 
 void _triggerSyncToast(WidgetRef ref, String msg) {
   ref.read(syncActivityProvider.notifier).state = msg;
@@ -151,6 +167,7 @@ class _SplurterMacAppState extends ConsumerState<SplurterMacApp> {
       final appName = payload['appName'] as String? ?? payload['packageName'] as String? ?? 'Android';
       final title = payload['title'] as String? ?? 'Notification';
       final text = payload['text'] as String? ?? '';
+      if (_isIgnoredSystemNotif(appName, title)) return;
       final notif = PhoneNotificationData(
         appName: appName,
         title: title,
@@ -180,6 +197,7 @@ class _SplurterMacAppState extends ConsumerState<SplurterMacApp> {
               final appName = payload['appName'] as String? ?? payload['packageName'] as String? ?? 'Android';
               final title = payload['title'] as String? ?? 'Notification';
               final text = payload['text'] as String? ?? '';
+              if (_isIgnoredSystemNotif(appName, title)) return;
               final notif = PhoneNotificationData(
                 appName: appName,
                 title: title,
@@ -239,10 +257,17 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
     final hostUid = FirebaseAuth.instance.currentUser?.uid ?? kMacHostUid;
     final remoteDevicesAsync = ref.watch(remoteDevicesStreamProvider(hostUid));
     final fallbackDevicesAsync = ref.watch(remoteDevicesStreamProvider(kMacHostUid));
-    final remoteDevices = [
+    final rawRemoteDevices = [
       ...?(remoteDevicesAsync.asData?.value),
       ...?(fallbackDevicesAsync.asData?.value),
     ];
+    final seenKeys = <String>{};
+    final remoteDevices = rawRemoteDevices.where((d) {
+      final key = '${d.platform}_${d.name}_${d.address}';
+      if (seenKeys.contains(key)) return false;
+      seenKeys.add(key);
+      return true;
+    }).toList();
 
     final secondaryDevice = remoteDevices.firstWhere(
       (d) => d.platform != 'macos',
@@ -517,104 +542,123 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
                   decoration: const BoxDecoration(
                     border: Border(bottom: BorderSide(color: Color(0xFF1E293B), width: 1)),
                   ),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: Icon(
-                          isSidebarCollapsed ? Icons.menu_rounded : Icons.menu_open_rounded,
-                          color: Colors.white70,
-                          size: 18,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minWidth: math.max(
+                          0.0,
+                          MediaQuery.sizeOf(context).width - (isSidebarCollapsed ? 0 : 270) - 32,
                         ),
-                        tooltip: isSidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar',
-                        onPressed: () => ref.read(isSidebarCollapsedProvider.notifier).state = !isSidebarCollapsed,
                       ),
-                      const SizedBox(width: 8),
-                      _NavTabButton(
-                        icon: Icons.devices_rounded,
-                        label: 'Devices',
-                        isSelected: _selectedTabIndex == 0,
-                        onTap: () => setState(() => _selectedTabIndex = 0),
-                      ),
-                      const SizedBox(width: 6),
-                      _NavTabButton(
-                        icon: Icons.settings_rounded,
-                        label: 'Settings',
-                        isSelected: _selectedTabIndex == 1,
-                        onTap: () => setState(() => _selectedTabIndex = 1),
-                      ),
-                      if (activeDevice != null) ...[
-                        const SizedBox(width: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
                             children: [
-                              const Icon(Icons.check_circle, color: Colors.greenAccent, size: 12),
-                              const SizedBox(width: 6),
-                              Text(
-                                activeDevice.name,
-                                style: const TextStyle(
-                                  color: Colors.greenAccent,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
+                              IconButton(
+                                icon: Icon(
+                                  isSidebarCollapsed ? Icons.menu_rounded : Icons.menu_open_rounded,
+                                  color: Colors.white70,
+                                  size: 18,
                                 ),
+                                tooltip: isSidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar',
+                                onPressed: () => ref.read(isSidebarCollapsedProvider.notifier).state = !isSidebarCollapsed,
+                              ),
+                              const SizedBox(width: 8),
+                              _NavTabButton(
+                                icon: Icons.devices_rounded,
+                                label: 'Devices',
+                                isSelected: _selectedTabIndex == 0,
+                                onTap: () => setState(() => _selectedTabIndex = 0),
+                              ),
+                              const SizedBox(width: 6),
+                              _NavTabButton(
+                                icon: Icons.settings_rounded,
+                                label: 'Settings',
+                                isSelected: _selectedTabIndex == 1,
+                                onTap: () => setState(() => _selectedTabIndex = 1),
+                              ),
+                              if (activeDevice != null) ...[
+                                const SizedBox(width: 12),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.check_circle, color: Colors.greenAccent, size: 12),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        activeDevice.name,
+                                        style: const TextStyle(
+                                          color: Colors.greenAccent,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              if (syncActivity != null) ...[
+                                const SizedBox(width: 16),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.5)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.sync_rounded, color: Color(0xFF34D399), size: 14),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        syncActivity,
+                                        style: const TextStyle(
+                                          color: Color(0xFF34D399),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: Badge(
+                                  isLabelVisible: notifHistory.isNotEmpty,
+                                  label: Text('${notifHistory.length}', style: const TextStyle(fontSize: 10)),
+                                  child: Icon(
+                                    Icons.notifications_rounded,
+                                    color: isHistoryDrawerOpen ? const Color(0xFF818CF8) : Colors.white70,
+                                    size: 18,
+                                  ),
+                                ),
+                                tooltip: 'Notification History',
+                                onPressed: () => ref.read(isHistoryDrawerOpenProvider.notifier).state = !isHistoryDrawerOpen,
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                icon: const Icon(Icons.aspect_ratio_rounded, color: Colors.white70, size: 18),
+                                tooltip: 'Float Compact Mode',
+                                onPressed: () => ref.read(isCompactModeProvider.notifier).state = true,
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                      if (syncActivity != null) ...[
-                        const SizedBox(width: 16),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.5)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.sync_rounded, color: Color(0xFF34D399), size: 14),
-                              const SizedBox(width: 6),
-                              Text(
-                                syncActivity,
-                                style: const TextStyle(
-                                  color: Color(0xFF34D399),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      const Spacer(),
-                      IconButton(
-                        icon: Badge(
-                          isLabelVisible: notifHistory.isNotEmpty,
-                          label: Text('${notifHistory.length}', style: const TextStyle(fontSize: 10)),
-                          child: Icon(
-                            Icons.notifications_rounded,
-                            color: isHistoryDrawerOpen ? const Color(0xFF818CF8) : Colors.white70,
-                            size: 18,
-                          ),
-                        ),
-                        tooltip: 'Notification History',
-                        onPressed: () => ref.read(isHistoryDrawerOpenProvider.notifier).state = !isHistoryDrawerOpen,
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: const Icon(Icons.aspect_ratio_rounded, color: Colors.white70, size: 18),
-                        tooltip: 'Float Compact Mode',
-                        onPressed: () => ref.read(isCompactModeProvider.notifier).state = true,
-                      ),
-                    ],
+                    ),
                   ),
                 ),
 
@@ -887,13 +931,22 @@ class _NotificationHistoryDrawer extends StatelessWidget {
           Expanded(
             child: history.isEmpty
                 ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.notifications_none_rounded, color: Colors.white24, size: 40),
-                        SizedBox(height: 12),
-                        Text('No recent notifications', style: TextStyle(color: Colors.white38, fontSize: 13)),
-                      ],
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.notifications_none_rounded, color: Colors.white24, size: 40),
+                          SizedBox(height: 12),
+                          Text('No notifications', style: TextStyle(color: Colors.white60, fontSize: 13, fontWeight: FontWeight.w600)),
+                          SizedBox(height: 8),
+                          Text(
+                            'To mirror phone notifications, ensure Notification Access permission is enabled in your Splurter Android app.',
+                            style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.3),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
                     ),
                   )
                 : ListView.separated(

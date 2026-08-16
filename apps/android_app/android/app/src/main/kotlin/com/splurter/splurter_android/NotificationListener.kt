@@ -58,6 +58,11 @@ class NotificationListener : NotificationListenerService() {
                 return@let
             }
 
+            // Filter out Android System UI and background system services (like Adaptive charging, USB charging, etc.)
+            if (packageName == "com.android.systemui" || packageName == "android" || packageName == "com.android.settings" || packageName.startsWith("com.android.providers.")) {
+                return@let
+            }
+
             // Filter out ongoing background system notifications (e.g. download progress bars)
             if ((it.notification.flags and Notification.FLAG_ONGOING_EVENT) != 0) {
                 return@let

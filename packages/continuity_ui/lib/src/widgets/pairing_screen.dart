@@ -131,7 +131,15 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      ...widget.discoveredDevices!.map((dev) => Container(
+                      ...(() {
+                        final seenKeys = <String>{};
+                        return widget.discoveredDevices!.where((dev) {
+                          final key = '${dev.platform}_${dev.name}_${dev.address}';
+                          if (seenKeys.contains(key)) return false;
+                          seenKeys.add(key);
+                          return true;
+                        });
+                      })().map((dev) => Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(

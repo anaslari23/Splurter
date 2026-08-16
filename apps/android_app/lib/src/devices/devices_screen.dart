@@ -22,14 +22,26 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
 
     final Device? pairedDevice = pairingState is PairingConnected ? pairingState.device : null;
     final remoteDevicesAsync = ref.watch(remoteDevicesStreamProvider('mac-channel-1'));
-    final remoteDevices = [
+    final rawRemoteDevices = [
       ...?(remoteDevicesAsync.asData?.value),
     ].where((d) => d.platform == 'macos').toList();
+    final seenKeys = <String>{};
+    final remoteDevices = rawRemoteDevices.where((d) {
+      final key = '${d.platform}_${d.name}_${d.address}';
+      if (seenKeys.contains(key)) return false;
+      seenKeys.add(key);
+      return true;
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Devices'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.shield_outlined, color: Colors.amberAccent),
+            tooltip: 'Grant Android Permissions',
+            onPressed: () => _showPermissionsModal(context),
+          ),
           IconButton(
             icon: const Icon(Icons.qr_code_scanner),
             tooltip: 'Scan QR to pair',
@@ -47,6 +59,30 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
               padding: const EdgeInsets.all(24),
               children: [
                 const AndroidPermissionBanner(),
+                Card(
+                  elevation: 0,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  color: Colors.amber.shade900.withValues(alpha: 0.18),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: Colors.amber.shade400.withValues(alpha: 0.4)),
+                  ),
+                  child: ListTile(
+                    leading: const Icon(Icons.shield_outlined, color: Colors.amberAccent, size: 28),
+                    title: const Text(
+                      'Continuity Permissions',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amberAccent),
+                    ),
+                    subtitle: const Text(
+                      'Directly grant Notification, Keyboard & Battery permissions',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    trailing: FilledButton.tonal(
+                      onPressed: () => _showPermissionsModal(context),
+                      child: const Text('Manage'),
+                    ),
+                  ),
+                ),
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -130,6 +166,30 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const AndroidPermissionBanner(),
+                Card(
+                  elevation: 0,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  color: Colors.amber.shade900.withValues(alpha: 0.18),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: Colors.amber.shade400.withValues(alpha: 0.4)),
+                  ),
+                  child: ListTile(
+                    leading: const Icon(Icons.shield_outlined, color: Colors.amberAccent, size: 28),
+                    title: const Text(
+                      'Continuity Permissions',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amberAccent),
+                    ),
+                    subtitle: const Text(
+                      'Directly grant Notification, Keyboard & Battery permissions',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    trailing: FilledButton.tonal(
+                      onPressed: () => _showPermissionsModal(context),
+                      child: const Text('Manage'),
+                    ),
+                  ),
+                ),
                     const SizedBox(height: 16),
                     Icon(
                       Icons.devices,
@@ -238,6 +298,76 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                 ),
               ),
             ),
+    );
+  }
+
+  void _showPermissionsModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.shield_outlined, color: Colors.amber, size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Android Permissions',
+                      style: Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Select a permission below to directly open Android Settings and enable it:',
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.notifications_active_outlined, color: Colors.amberAccent),
+                title: const Text('Notification Access Permission'),
+                subtitle: const Text('Required to mirror notifications to Mac'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await openNotificationListenerSettings();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.keyboard_outlined, color: Colors.amberAccent),
+                title: const Text('Splurter Keyboard Permission'),
+                subtitle: const Text('Required for cross-device clipboard sync'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await openInputMethodSettings();
+                  await showInputMethodPicker();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.battery_charging_full_outlined, color: Colors.amberAccent),
+                title: const Text('Unrestricted Battery Permission'),
+                subtitle: const Text('Required for reliable background sync'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await requestBatteryExemption();
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
