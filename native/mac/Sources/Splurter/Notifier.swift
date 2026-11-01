@@ -39,8 +39,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let n = UNMutableNotificationContent()
         n.title = c.name.isEmpty ? (c.number.isEmpty ? "Incoming call" : c.number) : c.name
         n.subtitle = "Incoming call"; n.body = c.name.isEmpty ? "" : c.number
-        n.categoryIdentifier = "call"; n.sound = .defaultCritical
-        center.add(UNNotificationRequest(identifier: "call", content: n, trigger: nil))
+        n.categoryIdentifier = "call"; n.sound = .default
+        center.add(UNNotificationRequest(identifier: "call", content: n, trigger: nil)) { Debug.log("call banner add: \(String(describing: $0))") }
     }
 
     func received(_ url: URL) {

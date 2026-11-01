@@ -12,6 +12,7 @@ object Phone {
     private var lastNumber: String? = null
 
     fun report(ctx: Context, state: String?, number: String?) {
+        android.util.Log.d("splurter", "phone state=$state number=${number != null} connected=${App.link.connected}")
         if (number != null) lastNumber = number
         val st = state?.lowercase() ?: return
         App.link.send(JSONObject().put("t", "call").put("state", st).put("number", lastNumber ?: "")
