@@ -21,6 +21,15 @@ object Phone {
         if (st == "idle") lastNumber = null
     }
 
+    /** On every (re)connect: tell the Mac the real call state, since a message sent while disconnected is lost. */
+    @Suppress("DEPRECATION")
+    fun resync(ctx: Context) {
+        val st = runCatching { ctx.getSystemService(android.telephony.TelephonyManager::class.java).callState }.getOrNull() ?: return
+        state = when (st) { android.telephony.TelephonyManager.CALL_STATE_RINGING -> "ringing"; android.telephony.TelephonyManager.CALL_STATE_OFFHOOK -> "offhook"; else -> "idle" }
+        App.link.send(JSONObject().put("t", "call").put("state", state).put("number", lastNumber ?: "").put("name", lastNumber?.let { name(ctx, it) } ?: ""))
+        if (state == "idle") lastNumber = null
+    }
+
     fun handle(ctx: Context, m: JSONObject) = runCatching {
         val tm = ctx.getSystemService(TelecomManager::class.java)
         when (m.optString("t")) {
