@@ -44,6 +44,9 @@ class MainActivity : ComponentActivity() {
                         Feature("Notifications", "Mirror to your Mac, reply from there", featureIcons["notifications"]!!,
                             getSystemService(NotificationManager::class.java).isNotificationListenerAccessGranted(ComponentName(this, NotifService::class.java)))
                         { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                        Feature("Screen control", "Click and type on your phone from the Mac mirror", featureIcons["notifications"]!!,
+                            Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)?.contains("app.splurter/") == true)
+                        { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                         Feature("Calls", "Answer and decline from your Mac", featureIcons["calls"]!!, has(*calls)) { ask.launch(calls) },
                         Feature("Text messages", "Send texts from your Mac", featureIcons["sms"]!!, has(Manifest.permission.SEND_SMS)) { ask.launch(arrayOf(Manifest.permission.SEND_SMS)) },
                         Feature("Contacts", "Show names instead of numbers", featureIcons["contacts"]!!, has(Manifest.permission.READ_CONTACTS)) { ask.launch(arrayOf(Manifest.permission.READ_CONTACTS)) },

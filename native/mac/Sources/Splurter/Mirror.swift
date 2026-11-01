@@ -87,6 +87,13 @@ struct MirrorView: View {
         }
         .frame(minWidth: 240, minHeight: 420)
         .aspectRatio(mirror.aspect, contentMode: .fit)
+        .toolbar {
+            ToolbarItemGroup {
+                Button { Link.shared.sendMessage(["t": "key", "k": "back"]) } label: { Image(systemName: "chevron.left") }.help("Back (Esc)")
+                Button { Link.shared.sendMessage(["t": "key", "k": "home"]) } label: { Image(systemName: "circle") }.help("Home")
+                Button { Link.shared.sendMessage(["t": "key", "k": "recents"]) } label: { Image(systemName: "square.on.square") }.help("Recent apps")
+            }
+        }
         .onDisappear { Link.shared.sendMessage(["t": "mirror_stop"]); mirror.state = "idle" }
     }
 
@@ -99,8 +106,57 @@ struct MirrorView: View {
     }
 }
 
+/// Hosts the video layer and turns mouse/keyboard input into control messages (coordinates normalised 0..1).
+final class InputView: NSView {
+    var send: (([String: Any]) -> Void)?
+    private var down: (pt: CGPoint, t: Date)?
+    private var scrollAcc: CGFloat = 0, lastScroll = Date.distantPast
+
+    override var acceptsFirstResponder: Bool { true }
+    override func viewDidMoveToWindow() { window?.makeFirstResponder(self) }
+
+    private func norm(_ e: NSEvent) -> CGPoint {
+        let p = convert(e.locationInWindow, from: nil)
+        return CGPoint(x: min(max(p.x / bounds.width, 0), 1), y: min(max(1 - p.y / bounds.height, 0), 1))
+    }
+
+    override func mouseDown(with e: NSEvent) { down = (norm(e), Date()) }
+    override func mouseUp(with e: NSEvent) {
+        guard let d = down else { return }; down = nil
+        let p = norm(e), ms = Int(Date().timeIntervalSince(d.t) * 1000)
+        if hypot((p.x - d.pt.x) * bounds.width, (p.y - d.pt.y) * bounds.height) < 8 {
+            send?(["t": "tap", "x": p.x, "y": p.y, "ms": min(max(ms, 40), 1000)]) // long press if held
+        } else {
+            send?(["t": "swipe", "x1": d.pt.x, "y1": d.pt.y, "x2": p.x, "y2": p.y, "ms": min(max(ms, 80), 1000)])
+        }
+    }
+
+    override func scrollWheel(with e: NSEvent) {
+        scrollAcc += e.scrollingDeltaY / bounds.height * 2
+        guard abs(scrollAcc) > 0.05, Date().timeIntervalSince(lastScroll) > 0.15 else { return }
+        let dy = min(max(scrollAcc, -0.4), 0.4); scrollAcc = 0; lastScroll = Date()
+        send?(["t": "swipe", "x1": 0.5, "y1": 0.5, "x2": 0.5, "y2": 0.5 + dy, "ms": 120])
+    }
+
+    override func keyDown(with e: NSEvent) {
+        switch e.keyCode {
+        case 51: send?(["t": "key", "k": "del"])
+        case 36: send?(["t": "key", "k": "enter"])
+        case 53: send?(["t": "key", "k": "back"])
+        default:
+            if !e.modifierFlags.contains(.command), let s = e.characters, !s.isEmpty, s.unicodeScalars.allSatisfy({ $0.value >= 32 }) {
+                send?(["t": "text", "s": s])
+            }
+        }
+    }
+}
+
 struct LayerView: NSViewRepresentable {
     let layer: CALayer
-    func makeNSView(context: Context) -> NSView { let v = NSView(); v.layer = layer; v.wantsLayer = true; return v }
-    func updateNSView(_ v: NSView, context: Context) {}
+    func makeNSView(context: Context) -> InputView {
+        let v = InputView(); v.layer = layer; v.wantsLayer = true
+        v.send = { msg in if Mirror.shared.state == "live" { Link.shared.sendMessage(msg) } }
+        return v
+    }
+    func updateNSView(_ v: InputView, context: Context) {}
 }
