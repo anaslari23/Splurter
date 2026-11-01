@@ -21,6 +21,7 @@ final class Link: ObservableObject {
     @Published var pairing = false { didSet { if pairing { refreshQR() } } }
     @Published var devices = Store.loadDevices()
     @Published var connectedName: String?
+    @Published var phoneHost: String? // the phone's LAN address, used to pick the matching adb device for call audio
     struct Entry: Identifiable { let id = UUID(); let icon: String; let text: String; let time = Date() }
     @Published var activity: [Entry] = []
     struct Call { var state: String; var number: String; var name: String }
@@ -55,8 +56,6 @@ final class Link: ObservableObject {
         Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.q.async { self?.send(["t": "ping"]) } }
     }
 
-    func sendAudio(_ pcm: Data) { q.async { self.sendFrame(Data([3]) + pcm) } }
-
     func sendMessage(_ o: [String: Any]) { q.async { self.send(o) } }
 
     func forget(_ id: String) {
@@ -81,6 +80,7 @@ final class Link: ObservableObject {
 
     private func accept(_ c: NWConnection) {
         c.start(queue: q)
+        if case .hostPort(let host, _) = c.endpoint { let h = "\(host)".split(separator: "%").first.map(String.init); DispatchQueue.main.async { self.phoneHost = h } }
         read(c, 65) { [weak self] hs in
             guard let self else { return }
             let hs = Data(hs)
@@ -185,7 +185,6 @@ final class Link: ObservableObject {
 
     private func handle(_ plain: Data, _ k: Conn) {
         let plain = Data(plain)
-        if plain.first == 3 { AudioBridge.shared.play(plain); return } // call audio
         if plain.first == 2 { Mirror.shared.feed(plain); return } // video frame
         if plain.first == 1 { // file chunk
             let id = plain[1..<5].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
@@ -197,7 +196,7 @@ final class Link: ObservableObject {
             let name = m["name"] as? String ?? "Phone"
             if k.pairing { trusted.insert(k.peer); token = Self.newToken() } // first authenticated frame: remember this phone
             DispatchQueue.main.async {
-                if k.pairing { self.devices.append(Device(id: k.peer, name: name)); Store.save(self.devices); self.pairing = false }
+                if k.pairing { self.devices.removeAll { $0.id == k.peer }; self.devices.append(Device(id: k.peer, name: name)); Store.save(self.devices); self.pairing = false }
                 self.connectedName = name
             }
             send(["t": "hello", "name": Host.current().localizedName ?? "Mac"])
@@ -214,15 +213,10 @@ final class Link: ObservableObject {
                 if c.state == "ringing", self.call?.state != "ringing" { self.log("phone.arrow.down.left", "Incoming call \(c.name.isEmpty ? c.number : c.name)") }
                 self.call = c.state == "idle" ? nil : c
                 CallPanel.shared.update(self.call)
-                if c.state == "idle" { AudioBridge.shared.stop() }
+                CallAudio.shared.callChanged(c.state)
                 Notifier.shared.call(c)
             }
         case "sms_sent": DispatchQueue.main.async { self.log("message.fill", "Text sent to \(m["to"] ?? "?")") }
-        case "audio_state":
-            DispatchQueue.main.async {
-                if let l = m["level"] as? Double { AudioBridge.shared.level = l }
-                switch m["state"] as? String { case "live": AudioBridge.shared.state = "live"; case "off": AudioBridge.shared.stop(notifyPhone: false); default: break }
-            }
         case "mirror_info":
             if let w = m["w"] as? Double, let h = m["h"] as? Double, h > 0 { DispatchQueue.main.async { Mirror.shared.aspect = w / h } }
         case "mirror_state": DispatchQueue.main.async { Mirror.shared.state = m["state"] as? String ?? "idle" }

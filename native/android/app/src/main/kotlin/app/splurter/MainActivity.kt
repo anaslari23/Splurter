@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             SplurterTheme {
                 tick // read so permission rows recompose
+                val wirelessDebugging = Settings.Global.getInt(contentResolver, "adb_wifi_enabled", 0) == 1 // readable by any app
                 val calls = arrayOf(Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_CALL_LOG, Manifest.permission.ANSWER_PHONE_CALLS, Manifest.permission.CALL_PHONE)
                 HomeScreen(state, paired,
                     features = listOf(
@@ -47,7 +48,11 @@ class MainActivity : ComponentActivity() {
                         Feature("Screen control", "Click and type on your phone from the Mac mirror", featureIcons["notifications"]!!,
                             Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)?.contains("app.splurter/") == true)
                         { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-                        Feature("Calls", "Answer, decline and dial from your Mac. The voice stays on the phone.", featureIcons["calls"]!!, has(*calls)) { ask.launch(calls) },
+                        Feature("Calls", "Answer, decline and dial from your Mac.", featureIcons["calls"]!!, has(*calls)) { ask.launch(calls) },
+                        Feature("Call audio (beta)",
+                            if (wirelessDebugging) "Wireless debugging is on. During a call, press Use Mac audio on your Mac."
+                            else "Talk on calls through your Mac. Needs Wireless debugging: turn it on in Developer options, then finish setup on the Mac.",
+                            featureIcons["calls"]!!, wirelessDebugging, "Open settings") { openDeveloperOptions() },
                         Feature("Text messages", "Send texts from your Mac", featureIcons["sms"]!!, has(Manifest.permission.SEND_SMS)) { ask.launch(arrayOf(Manifest.permission.SEND_SMS)) },
                         Feature("Contacts", "Show names instead of numbers", featureIcons["contacts"]!!, has(Manifest.permission.READ_CONTACTS)) { ask.launch(arrayOf(Manifest.permission.READ_CONTACTS)) },
                     ),
@@ -65,6 +70,14 @@ class MainActivity : ComponentActivity() {
                     onForget = { link.forget(); paired = false },
                 )
             }
+        }
+    }
+
+    private fun openDeveloperOptions() {
+        try { startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)) }
+        catch (e: Exception) { // Developer options not enabled yet: send them to About phone, where tapping Build number 7 times enables it
+            android.widget.Toast.makeText(this, "Tap Build number 7 times to enable Developer options", android.widget.Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_DEVICE_INFO_SETTINGS))
         }
     }
 

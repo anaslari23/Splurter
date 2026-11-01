@@ -24,7 +24,7 @@ Always install the Mac app with `--install`: it keeps a single registered copy o
 | Calls and texts | `Link.swift`, `CallPanel.swift` | `Phone.kt` |
 | Files | `Link.swift` | `Files.kt`, `ShareActivity.kt` |
 | Mirroring and control | `Mirror.swift` | `Mirror.kt`, `Control.kt` |
-| Call audio (prototype) | `native/callbridge/mac/main.swift` | `native/callbridge/helper/Bridge.java` (runs as the adb shell user) |
+| Call audio (beta) | `CallAudio.swift`, `Adb.swift`, `CallAudioSetup.swift` | `native/callbridge/helper/Bridge.java` (runs on the phone as the adb shell user) |
 | UI | `App.swift` | `Ui.kt`, `MainActivity.kt` |
 
 If you change the wire format, update [docs/PROTOCOL.md](docs/PROTOCOL.md) and, for an incompatible change, bump `v` in the QR payload and the HKDF `info` string on both sides.

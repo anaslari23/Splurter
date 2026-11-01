@@ -1,0 +1,9 @@
+Splurter call audio bundles the scrcpy server (scrcpy-server.jar):
+
+  scrcpy - https://github.com/Genymobile/scrcpy
+  Copyright (C) 2018 Genymobile
+  Copyright (C) 2018-2026 Romain Vimont
+  Licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+
+The helper that Splurter runs on your phone uses scrcpy's classes to obtain a shell-user audio context.
+The jar is the unmodified official release (v5.0.1, sha256 764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536).
