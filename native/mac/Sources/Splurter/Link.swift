@@ -223,6 +223,9 @@ final class Link: ObservableObject {
             if let w = m["w"] as? Double, let h = m["h"] as? Double, h > 0 { DispatchQueue.main.async { Mirror.shared.aspect = w / h } }
         case "mirror_state": DispatchQueue.main.async { Mirror.shared.state = m["state"] as? String ?? "idle" }
         case "file", "file_end": receive(m, t)
+        case "app_icon":
+            if let pkg = m["pkg"] as? String, pkg.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }), // it becomes a file name
+               let png = (m["png"] as? String).flatMap({ Data(base64Encoded: $0) }) { try? png.write(to: Notifier.iconURL(pkg)) }
         case "notif": DispatchQueue.main.async { Notifier.shared.show(m) }
         case "notif_gone": if let id = m["id"] as? String { DispatchQueue.main.async { Notifier.shared.remove(id) } }
         default: break

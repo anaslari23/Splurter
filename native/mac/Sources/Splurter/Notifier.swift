@@ -6,6 +6,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
     private let center = UNUserNotificationCenter.current()
 
+    /// Phone app icons, cached by Android package name.
+    static func iconURL(_ pkg: String) -> URL {
+        let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Splurter/icons")
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d.appendingPathComponent(pkg + ".png")
+    }
+
     func setup() {
         center.delegate = self
         let reply = UNTextInputNotificationAction(identifier: "reply", title: "Reply", options: [],
@@ -30,6 +37,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         c.categoryIdentifier = (m["canReply"] as? Bool == true) ? "reply" : "plain"
         c.userInfo = ["id": id]
         c.interruptionLevel = (m["sync"] as? Bool == true) ? .passive : .active // catch-up items arrive quietly
+        if let pkg = m["pkg"] as? String, FileManager.default.fileExists(atPath: Self.iconURL(pkg).path) {
+            // The system moves attachment files into its own store, so hand it a copy.
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+            try? FileManager.default.copyItem(at: Self.iconURL(pkg), to: tmp)
+            if let a = try? UNNotificationAttachment(identifier: "icon", url: tmp, options: [UNNotificationAttachmentOptionsTypeHintKey: "public.png"]) { c.attachments = [a] }
+        }
         center.add(UNNotificationRequest(identifier: id, content: c, trigger: nil))
     }
 

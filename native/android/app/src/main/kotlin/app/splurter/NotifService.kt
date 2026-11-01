@@ -1,6 +1,10 @@
 package app.splurter
 
 import android.app.Notification
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import android.app.RemoteInput
 import android.content.Intent
 import android.os.Bundle
@@ -18,7 +22,20 @@ class NotifService : NotificationListenerService() {
     }
 
     /** Re-sends everything currently showing (quietly) — used on connect so the Mac catches up. */
-    fun snapshot() = activeNotifications.forEach { push(it, sync = true) }
+    fun snapshot() { sentIcons.clear(); activeNotifications.forEach { push(it, sync = true) } }
+
+    private val sentIcons = HashSet<String>() // per connection: the Mac caches icons by package
+
+    private fun sendIcon(pkg: String) {
+        if (!sentIcons.add(pkg)) return
+        runCatching {
+            val d = packageManager.getApplicationIcon(pkg)
+            val bmp = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
+            d.setBounds(0, 0, 128, 128); d.draw(Canvas(bmp))
+            val png = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            App.link.send(JSONObject().put("t", "app_icon").put("pkg", pkg).put("png", Base64.encodeToString(png, Base64.NO_WRAP)))
+        }
+    }
 
     fun reply(key: String, text: String) {
         val sbn = activeNotifications.firstOrNull { it.key == key } ?: return
@@ -37,7 +54,8 @@ class NotifService : NotificationListenerService() {
         val text = (e.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: e.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
         if (title.isEmpty() && text.isEmpty()) return
         val app = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(sbn.packageName)
-        App.link.send(JSONObject().put("t", "notif").put("id", sbn.key).put("app", app).put("title", title).put("text", text)
+        sendIcon(sbn.packageName) // before the notification itself: the link keeps order, so the Mac has it when the banner is built
+        App.link.send(JSONObject().put("t", "notif").put("id", sbn.key).put("pkg", sbn.packageName).put("app", app).put("title", title).put("text", text)
             .put("canReply", n.actions?.any { it.remoteInputs?.isNotEmpty() == true } == true).put("sync", sync))
     }
 
