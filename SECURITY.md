@@ -7,9 +7,14 @@
 - All traffic (messages, files, video, audio) is encrypted with ChaCha20-Poly1305 under keys from four X25519 agreements. See [docs/PROTOCOL.md](docs/PROTOCOL.md).
 - Sensitive actions need consent on the phone: screen mirroring needs a tap on the notification and Android's capture prompt each time, and remote input is ignored unless a mirroring session is live. Notification access, accessibility (screen control) and call/SMS permissions are granted by the user in Android settings.
 
-## Call audio prototype (`native/callbridge`)
+## Call audio (beta)
 
-Opt-in and not part of the apps yet. It needs **wireless debugging** on the phone and runs a helper with the adb shell user's privileges (call-audio capture and injection). Treat that as powerful: anyone who can pair with your phone's debugging can do the same. Turn wireless debugging off when you are not using it. The prototype's local socket has no authentication yet (planned: random per-session name plus a token), so do not run it on a phone that has untrusted apps installed.
+Opt-in. It needs **wireless debugging** on the phone, and it runs a small helper with the adb shell user's privileges (call-audio capture and injection, and muting the phone microphone while it runs). Treat that as powerful: anyone who can pair with your phone's debugging can do the same.
+
+- The helper listens on an abstract socket with a **random name per session** and accepts **one client** that presents a **one-time token** and then a ready byte. It exits if nobody connects within 25 seconds, and when the Mac disconnects. The socket is reachable through `adb forward`, not by other apps on the phone.
+- The Mac's adb key (in `~/.android`) is what authorizes it. You can revoke it on the phone under Developer options, Wireless debugging, Paired devices.
+- Turn Wireless debugging off when you are not using call audio.
+- The helper reuses scrcpy's setup code (Apache-2.0, see `native/callbridge/THIRD_PARTY_NOTICES.txt`).
 
 ## Known gaps
 
