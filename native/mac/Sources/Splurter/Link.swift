@@ -216,6 +216,7 @@ final class Link: ObservableObject {
             }
         case "sms_sent": DispatchQueue.main.async { self.log("message.fill", "Text sent to \(m["to"] ?? "?")") }
         case "audio_state":
+            Debug.log("audio_state from phone: \(m)")
             DispatchQueue.main.async {
                 if let l = m["level"] as? Double { AudioBridge.shared.level = l }
                 switch m["state"] as? String { case "live": AudioBridge.shared.state = "live"; case "off": AudioBridge.shared.stop(notifyPhone: false); default: break }

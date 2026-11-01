@@ -24,6 +24,7 @@ import kotlin.math.sqrt
  */
 object Audio {
     fun request(ctx: Context, src: String) {
+        android.util.Log.d("splurter", "audio_start received, src=$src, notifying user")
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("audio", "Call audio requests", NotificationManager.IMPORTANCE_HIGH))
         nm.notify(4, Notification.Builder(ctx, "audio").setSmallIcon(android.R.drawable.ic_btn_speak_now)
@@ -32,6 +33,8 @@ object Audio {
         App.link.send(JSONObject().put("t", "audio_state").put("state", "waiting"))
     }
     fun onFrame(plain: ByteArray) { AudioService.instance?.play(plain) }
+    private var rx = 0
+    fun logRx() { if (++rx % 100 == 1) android.util.Log.d("splurter", "mac audio frames received: $rx") }
 }
 
 class AudioService : Service() {
@@ -45,6 +48,7 @@ class AudioService : Service() {
         startForeground(5, Notification.Builder(this, "audio_live").setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("Your Mac is using this call's audio").build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         instance = this
+        android.util.Log.d("splurter", "AudioService started src=${i.getStringExtra("src")}")
         getSystemService(AudioManager::class.java).apply { @Suppress("DEPRECATION") runCatching { isSpeakerphoneOn = true } } // best effort; user may need to tap speaker
         val src = when (i.getStringExtra("src")) { "comm" -> MediaRecorder.AudioSource.VOICE_COMMUNICATION; "recog" -> MediaRecorder.AudioSource.VOICE_RECOGNITION; else -> MediaRecorder.AudioSource.MIC }
         val sr = 16000
@@ -55,6 +59,7 @@ class AudioService : Service() {
             .setAudioFormat(AudioFormat.Builder().setSampleRate(sr).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
             .setBufferSizeInBytes(16000).setTransferMode(AudioTrack.MODE_STREAM).build()
         rec.startRecording(); track!!.play(); running = true
+        android.util.Log.d("splurter", "AudioRecord state=${rec.state} recording=${rec.recordingState} speaker=${getSystemService(AudioManager::class.java).isSpeakerphoneOn}")
         App.link.send(JSONObject().put("t", "audio_state").put("state", "live"))
         Thread {
             val buf = ByteArray(640); var n = 0; var sum = 0.0; var cnt = 0
@@ -63,6 +68,7 @@ class AudioService : Service() {
                 if (r <= 0) continue
                 App.link.sendVideo(byteArrayOf(3) + buf.copyOf(r))
                 for (k in 0 until r - 1 step 2) { val v = (buf[k].toInt() and 0xff) or (buf[k + 1].toInt() shl 8); sum += v.toShort() * v.toShort().toDouble() ; cnt++ }
+                if (n % 50 == 0) android.util.Log.d("splurter", "mic rms=${"%.4f".format(sqrt(sum / cnt.coerceAtLeast(1)) / 32768.0)} read=$r")
                 if (++n % 50 == 0) { // ~1 s: report mic level so the Mac can show whether Android is feeding us real audio or silence
                     App.link.send(JSONObject().put("t", "audio_state").put("state", "live").put("level", sqrt(sum / cnt.coerceAtLeast(1)) / 32768.0)); sum = 0.0; cnt = 0
                 }
@@ -74,7 +80,7 @@ class AudioService : Service() {
         return START_NOT_STICKY
     }
 
-    fun play(plain: ByteArray) { track?.write(plain, 1, plain.size - 1, AudioTrack.WRITE_NON_BLOCKING) }
+    fun play(plain: ByteArray) { Audio.logRx(); track?.write(plain, 1, plain.size - 1, AudioTrack.WRITE_NON_BLOCKING) }
 
     override fun onDestroy() { running = false; if (instance === this) instance = null; super.onDestroy() }
     companion object { @Volatile var instance: AudioService? = null }
