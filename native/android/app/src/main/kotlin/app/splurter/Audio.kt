@@ -36,6 +36,8 @@ object Audio {
         App.link.send(JSONObject().put("t", "audio_state").put("state", "waiting"))
     }
     fun onFrame(plain: ByteArray) { AudioService.instance?.play(plain) }
+    private var rx = 0
+    fun logRx() { if (++rx % 100 == 1) android.util.Log.d("splurter", "mac audio frames received: $rx") }
     fun stop() { AudioService.instance?.stopAudio() }
 }
 
@@ -80,6 +82,7 @@ class AudioService : Service() {
         rec.startRecording(); track!!.play(); running = true
         android.util.Log.d("splurter", "AudioRecord state=${rec.state} recording=${rec.recordingState} speaker=${getSystemService(AudioManager::class.java).isSpeakerphoneOn}")
         App.link.send(JSONObject().put("t", "audio_state").put("state", "live"))
+        probe()
         Thread {
             val buf = ByteArray(640); var n = 0; var sum = 0.0; var cnt = 0
             while (running && App.link.connected) {
@@ -99,7 +102,27 @@ class AudioService : Service() {
         }.start()
     }
 
-    fun play(plain: ByteArray) { track?.write(plain, 1, plain.size - 1, AudioTrack.WRITE_NON_BLOCKING) }
+    /** Diagnostic: Android may silence some mic sources during a call but not others. Logs each source's level. */
+    private fun probe() {
+        val all = mapOf("MIC" to 1, "VOICE_RECOGNITION" to 6, "VOICE_COMMUNICATION" to 7, "CAMCORDER" to 5, "UNPROCESSED" to 9, "VOICE_PERFORMANCE" to 10)
+        all.forEach { (name, src) ->
+            Thread {
+                runCatching {
+                    val r = AudioRecord(src, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, 16000)
+                    r.startRecording(); val b = ByteArray(32000); var t = 0
+                    while (running && t < 20) {
+                        var n = 0; var sum = 0.0
+                        while (n < 32000) { val k = r.read(b, n, 32000 - n); if (k <= 0) break; n += k }
+                        for (i in 0 until n - 1 step 2) { val v = ((b[i].toInt() and 0xff) or (b[i + 1].toInt() shl 8)).toShort().toDouble(); sum += v * v }
+                        android.util.Log.d("splurter", "probe $name rms=${"%.4f".format(sqrt(sum / (n / 2).coerceAtLeast(1)) / 32768.0)} rec=${r.recordingState}"); t++
+                    }
+                    r.stop(); r.release()
+                }.onFailure { android.util.Log.d("splurter", "probe $name failed: $it") }
+            }.start()
+        }
+    }
+
+    fun play(plain: ByteArray) { Audio.logRx(); track?.write(plain, 1, plain.size - 1, AudioTrack.WRITE_NON_BLOCKING) }
 
     /** Ends a capture session; an armed service stays up for the next call. */
     fun stopAudio() { if (armed) running = false else stopSelf() }
