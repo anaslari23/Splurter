@@ -26,8 +26,11 @@ PL
 codesign --force -s - $A
 echo "built $PWD/$A"
 if [ "$1" = "--install" ]; then
+  LSR=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
   pkill -x Splurter || true; sleep 1
   rm -rf /Applications/Splurter.app && ditto $A /Applications/Splurter.app
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Splurter.app
+  $LSR -f /Applications/Splurter.app
+  # Only the installed copy may own the bundle id, or Notification Center can pick a stale one and show a blank icon.
+  rm -rf "$A"; $LSR -u "$PWD/$A" 2>/dev/null
   echo "installed /Applications/Splurter.app"
 fi
