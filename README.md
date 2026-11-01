@@ -19,12 +19,12 @@ directly over your Wi-Fi, end-to-end encrypted. No account and no cloud.</p>
 | **Texts** | Send an SMS from the Mac. Incoming texts arrive as notifications. | ✅ |
 | **Files** | Drag files onto the menu-bar popover to send to the phone. Share from the phone to send to the Mac. | ✅ |
 | **Screen mirroring + control** | Live phone screen in a Mac window. Click, drag, scroll and type into it. Needs your explicit approval on the phone each time. | ✅ |
-| **Call audio on the Mac** | Talk on a call through the Mac. | ⏸ parked ³ |
+| **Call audio on the Mac** | Talk on a call through the Mac. | ⛔ blocked by Android ³ |
 | **Phone as webcam** | Use the phone camera as a Mac camera. | ⏳ not built ⁴ |
 
 ¹ Android 10+ blocks background clipboard reads, so phone to Mac is deliberately a button or share action.
 ² Reply was built but is untested against a real chat app. Apps must expose an inline-reply action.
-³ The audio bridge works, but Android feeds apps silence from the microphone during a cellular call. See [Known limits](#known-limits).
+³ The audio bridge itself works (it streams both ways), but Android feeds apps silence from the microphone during a cellular call. See [Known limits](#known-limits).
 ⁴ Needs a macOS Camera Extension, which must be signed with an Apple Developer team ID.
 
 ## How it works
@@ -90,7 +90,7 @@ docs/         protocol and project docs
 
 ## Known limits
 
-- **Call audio.** Android does not let apps tap or inject cellular call audio. The bridge is acoustic (phone microphone to Mac, Mac voice out of the phone speaker), and during a real call Android returned silence from the microphone. An accessibility-service exemption might change that and is untested. The probe for it is behind `AudioService.PROBE`.
+- **Call audio.** Android does not let apps tap or inject cellular call audio. The bridge is acoustic (phone microphone to Mac, Mac voice out of the phone speaker), and during a real call Android returned silence from the microphone. With Screen control (an accessibility service) running, every microphone source still returned silence. A helper running with `adb shell` privileges, which could in principle read the call audio directly, also failed on Android 17: even a plain `AudioRecord` from the shell cannot reach AudioFlinger (`Could not get audioflinger`). The per-source probe is behind `AudioService.PROBE`.
 - **macOS 27 audio engine.** Voice processing and playback cannot run in one `AVAudioEngine` on macOS 27 (error -10875), so capture and playback use separate engines.
 - **Clipboard.** Phone to Mac cannot be automatic on Android 10+.
 - **Mirroring.** The video size is fixed when a session starts (rotating the phone mid-session is not handled). Secure screens such as banking apps block capture by design. Dragging is sent on release rather than live.
