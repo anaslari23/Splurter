@@ -1,6 +1,0 @@
-name: splurter
-description: Android-to-Mac Continuity app
-publish_to: none
-
-environment:
-  sdk: ^3.7.0
