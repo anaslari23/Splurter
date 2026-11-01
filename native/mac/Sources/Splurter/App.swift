@@ -49,12 +49,18 @@ struct MenuView: View {
                     TextField("Phone number", text: $number)
                     TextField("Message", text: $message)
                     HStack {
+                        Button("Send file…") {
+                            let p = NSOpenPanel(); p.canChooseFiles = true; p.allowsMultipleSelection = true
+                            if p.runModal() == .OK { p.urls.forEach(link.sendFile) }
+                        }
                         Button("Call") { link.sendMessage(["t": "dial", "number": number]) }
                         Button("Send text") { link.sendMessage(["t": "sms_send", "to": number, "text": message]); message = "" }
                             .disabled(number.isEmpty || message.isEmpty)
                     }
                 }.textFieldStyle(.roundedBorder)
             }
+
+            if let t = link.transfer { Label(t, systemImage: "arrow.up.arrow.down") .font(.caption) }
 
             if link.pairing {
                 if let qr = link.qr { Image(nsImage: qr).interpolation(.none).resizable().frame(width: 220, height: 220).frame(maxWidth: .infinity) }
@@ -70,5 +76,9 @@ struct MenuView: View {
             Button("Quit Splurter") { NSApp.terminate(nil) }
         }
         .padding(16).frame(width: 280)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in // drop files on the popover to send
+            for p in providers { _ = p.loadObject(ofClass: URL.self) { u, _ in if let u { link.sendFile(u) } } }
+            return true
+        }
     }
 }

@@ -24,6 +24,8 @@ final class Link: ObservableObject {
     @Published var log: [String] = []
     struct Call { var state: String; var number: String; var name: String }
     @Published var call: Call?
+    @Published var transfer: String?
+    private var incoming: [UInt32: (h: FileHandle, url: URL)] = [:]
 
     private let q = DispatchQueue(label: "link")
     private let identity = Store.identity()
@@ -116,19 +118,71 @@ final class Link: ObservableObject {
 
     private func drop(_ k: Conn) {
         k.c.cancel()
-        if cur === k { cur = nil; DispatchQueue.main.async { self.connectedName = nil } }
+        if cur === k { incoming.values.forEach { try? $0.h.close() }; incoming = [:]; cur = nil; DispatchQueue.main.async { self.connectedName = nil } }
+    }
+
+    /// Frame type byte: 0 = JSON message, 1 = file chunk ([1][id:4 BE][data]). Must run on q (nonce order).
+    private func sendFrame(_ plain: Data, done: (() -> Void)? = nil) {
+        guard let k = cur, let ct = try? k.s.seal(plain) else { done?(); return }
+        var len = UInt32(ct.count).bigEndian
+        k.c.send(content: Data(bytes: &len, count: 4) + ct, completion: .contentProcessed { _ in done?() })
     }
 
     private func send(_ obj: [String: Any]) {
-        guard let k = cur, let json = try? JSONSerialization.data(withJSONObject: obj), let ct = try? k.s.seal(json) else { return }
-        var len = UInt32(ct.count).bigEndian
-        k.c.send(content: Data(bytes: &len, count: 4) + ct, completion: .contentProcessed { _ in })
+        guard let json = try? JSONSerialization.data(withJSONObject: obj) else { return }
+        sendFrame(Data([0]) + json)
+    }
+
+    /// Streams a file to the phone in 192 KB chunks, waiting on each write so other messages interleave.
+    /// ponytail: no progress bar / cancel; add when transfers of big files matter.
+    func sendFile(_ url: URL) {
+        DispatchQueue.global().async {
+            guard self.q.sync(execute: { self.cur != nil }), let h = try? FileHandle(forReadingFrom: url) else { return }
+            defer { try? h.close() }
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+            let id = UInt32.random(in: 1...UInt32.max)
+            DispatchQueue.main.async { self.transfer = "Sending \(url.lastPathComponent)…" }
+            self.q.sync { self.send(["t": "file", "id": Int(id), "name": url.lastPathComponent, "size": size]) }
+            let sem = DispatchSemaphore(value: 0)
+            var hdr = Data([1]); hdr += withUnsafeBytes(of: id.bigEndian) { Data($0) }
+            while let chunk = try? h.read(upToCount: 192 * 1024), !chunk.isEmpty {
+                self.q.sync { self.sendFrame(hdr + chunk) { sem.signal() } }
+                sem.wait()
+            }
+            self.q.sync { self.send(["t": "file_end", "id": Int(id)]) }
+            DispatchQueue.main.async { self.transfer = nil; self.log("✓ sent \(url.lastPathComponent)") }
+        }
+    }
+
+    private func receive(_ m: [String: Any], _ t: String) {
+        guard let id = (m["id"] as? Int).map(UInt32.init(truncatingIfNeeded:)) else { return }
+        if t == "file" {
+            var name = URL(fileURLWithPath: m["name"] as? String ?? "file").lastPathComponent // strip any path from the peer's name
+            if name.isEmpty || name == ".." { name = "file" }
+            let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+            var url = dir.appendingPathComponent(name), n = 1
+            while FileManager.default.fileExists(atPath: url.path) {
+                let u = URL(fileURLWithPath: name); n += 1
+                url = dir.appendingPathComponent("\(u.deletingPathExtension().lastPathComponent) \(n)" + (u.pathExtension.isEmpty ? "" : ".\(u.pathExtension)"))
+            }
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            if let h = try? FileHandle(forWritingTo: url) { incoming[id] = (h, url) }
+            DispatchQueue.main.async { self.transfer = "Receiving \(url.lastPathComponent)…" }
+        } else if let f = incoming.removeValue(forKey: id) {
+            try? f.h.close()
+            DispatchQueue.main.async { self.transfer = nil; Notifier.shared.received(f.url); self.log("✓ received \(f.url.lastPathComponent)") }
+        }
     }
 
     // MARK: messages (run on q)
 
-    private func handle(_ data: Data, _ k: Conn) {
-        guard let m = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let t = m["t"] as? String else { return }
+    private func handle(_ plain: Data, _ k: Conn) {
+        let plain = Data(plain)
+        if plain.first == 1 { // file chunk
+            let id = plain[1..<5].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            try? incoming[id]?.h.write(contentsOf: plain.dropFirst(5)); return
+        }
+        guard let m = try? JSONSerialization.jsonObject(with: plain.dropFirst()) as? [String: Any], let t = m["t"] as? String else { return }
         switch t {
         case "hello":
             let name = m["name"] as? String ?? "Phone"
@@ -152,6 +206,7 @@ final class Link: ObservableObject {
                 Notifier.shared.call(c)
             }
         case "sms_sent": DispatchQueue.main.async { self.log("✓ text sent to \(m["to"] ?? "?")") }
+        case "file", "file_end": receive(m, t)
         case "notif": DispatchQueue.main.async { Notifier.shared.show(m) }
         case "notif_gone": if let id = m["id"] as? String { DispatchQueue.main.async { Notifier.shared.remove(id) } }
         default: break

@@ -21,6 +21,7 @@ class App : Application() {
         super.onCreate()
         link = Link(this).also { l ->
             l.onConnected = { NotifService.instance?.snapshot() }
+            l.onChunk = Files::onChunk
             l.onMsg = { m ->
                 when (m.optString("t")) {
                     "clip" -> Handler(Looper.getMainLooper()).post {
@@ -28,6 +29,7 @@ class App : Application() {
                     }
                     "dismiss" -> NotifService.instance?.cancelNotification(m.getString("id"))
                     "reply" -> NotifService.instance?.reply(m.getString("id"), m.getString("text"))
+                    "file", "file_end" -> Files.onJson(this, m)
                     else -> Phone.handle(this, m)
                 }
             }

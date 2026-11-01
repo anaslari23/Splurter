@@ -44,6 +44,8 @@ class Link(private val ctx: Context) {
     var onState: ((String) -> Unit)? = null
     var onMsg: ((JSONObject) -> Unit)? = null
     var onConnected: (() -> Unit)? = null
+    var onChunk: ((ByteArray) -> Unit)? = null
+    val connected get() = out != null
     private val tx = java.util.concurrent.Executors.newSingleThreadExecutor()
     val paired get() = prefs.contains("mac_key")
 
@@ -77,10 +79,15 @@ class Link(private val ctx: Context) {
     /** Thread-safe, non-blocking; frames go out in call order. */
     fun send(m: JSONObject) { tx.execute { sendNow(m) } }
 
-    private fun sendNow(m: JSONObject) {
+    /** Waits until the frame is written — gives file senders backpressure so small messages can interleave. */
+    fun sendBlocking(plain: ByteArray) { tx.submit { sendRaw(plain) }.get() }
+
+    private fun sendNow(m: JSONObject) = sendRaw(byteArrayOf(0) + m.toString().toByteArray()) // frame type 0 = JSON, 1 = file chunk
+
+    private fun sendRaw(plain: ByteArray) {
         val o = out ?: return
         try {
-            val ct = aead(Cipher.ENCRYPT_MODE, sendKey, sendN++, m.toString().toByteArray())
+            val ct = aead(Cipher.ENCRYPT_MODE, sendKey, sendN++, plain)
             o.writeInt(ct.size); o.write(ct); o.flush()
         } catch (e: Exception) { socket?.close() }
     }
@@ -124,7 +131,9 @@ class Link(private val ctx: Context) {
             while (true) {
                 val len = inp.readInt(); require(len in 16..(1 shl 20))
                 val body = ByteArray(len).also { inp.readFully(it) }
-                val m = JSONObject(String(aead(Cipher.DECRYPT_MODE, recvKey, recvN++, body)))
+                val plain = aead(Cipher.DECRYPT_MODE, recvKey, recvN++, body)
+                if (plain[0] == 1.toByte()) { onChunk?.invoke(plain); continue }
+                val m = JSONObject(String(plain, 1, plain.size - 1))
                 when (m.optString("t")) {
                     "hello" -> { ok = true; pendingToken = null; set("Connected to ${m.optString("name", "Mac")}"); onConnected?.invoke() }
                     else -> onMsg?.invoke(m)

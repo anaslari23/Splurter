@@ -37,10 +37,15 @@ class MainActivity : Activity() {
                 val t = getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() ?: return@btn
                 Thread { link.send(JSONObject().put("t", "clip").put("text", t)) }.start()
             })
+            addView(btn("Send file to Mac") {
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE) }, 1)
+            })
             addView(btn("Allow notification access") { startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
             addView(btn("Forget Mac") { link.forget() })
         })
     }
+
+    override fun onActivityResult(req: Int, res: Int, data: Intent?) { data?.data?.let { Files.send(applicationContext, it) } }
 
     override fun onResume() { super.onResume(); link.onState = { s -> runOnUiThread { status.text = s } }; status.text = link.state }
     override fun onPause() { super.onPause(); link.onState = null }

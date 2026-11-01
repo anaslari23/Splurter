@@ -1,3 +1,4 @@
+import AppKit
 import UserNotifications
 
 /// Shows phone notifications as native macOS banners; Reply / Dismiss go back over the link.
@@ -42,6 +43,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.add(UNNotificationRequest(identifier: "call", content: n, trigger: nil))
     }
 
+    func received(_ url: URL) {
+        let n = UNMutableNotificationContent()
+        n.title = "Received \(url.lastPathComponent)"; n.body = "Saved to Downloads — click to show"; n.userInfo = ["path": url.path]
+        center.add(UNNotificationRequest(identifier: UUID().uuidString, content: n, trigger: nil))
+    }
+
     func remove(_ id: String) { center.removeDeliveredNotifications(withIdentifiers: [id]) }
 
     func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification,
@@ -54,6 +61,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         case "answer": Link.shared.sendMessage(["t": "call_answer"]); return
         case "decline": Link.shared.sendMessage(["t": "call_end"]); return
         default: break
+        }
+        if let path = r.notification.request.content.userInfo["path"] as? String {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]); return
         }
         guard let id = r.notification.request.content.userInfo["id"] as? String else { return }
         switch r.actionIdentifier {
