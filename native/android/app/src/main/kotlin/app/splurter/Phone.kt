@@ -10,11 +10,13 @@ import org.json.JSONObject
 /** Call state out, call/SMS commands in. All permission-gated calls fail soft (SecurityException is swallowed). */
 object Phone {
     private var lastNumber: String? = null
+    @Volatile var state = "idle"
 
     fun report(ctx: Context, state: String?, number: String?) {
         android.util.Log.d("splurter", "phone state=$state number=${number != null} connected=${App.link.connected}")
         if (number != null) lastNumber = number
         val st = state?.lowercase() ?: return
+        this.state = st
         App.link.send(JSONObject().put("t", "call").put("state", st).put("number", lastNumber ?: "")
             .put("name", lastNumber?.let { name(ctx, it) } ?: ""))
         if (st == "idle") lastNumber = null

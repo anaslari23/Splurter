@@ -48,7 +48,11 @@ class MainActivity : ComponentActivity() {
                             Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)?.contains("app.splurter/") == true)
                         { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                         Feature("Calls", "Answer and decline from your Mac", featureIcons["calls"]!!, has(*calls)) { ask.launch(calls) },
-                        Feature("Call audio", "Talk on calls through your Mac", featureIcons["calls"]!!, has(Manifest.permission.RECORD_AUDIO)) { ask.launch(arrayOf(Manifest.permission.RECORD_AUDIO)) },
+                        Feature("Hands-free call audio", "Let your Mac use call audio without a tap. Uses the mic only during a call you start from the Mac.", featureIcons["calls"]!!,
+                            has(Manifest.permission.RECORD_AUDIO) && AudioService.instance?.armed == true) {
+                            if (!has(Manifest.permission.RECORD_AUDIO)) ask.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                            else { startForegroundService(Intent(this, AudioService::class.java).putExtra("arm", true)); window.decorView.postDelayed({ tick++ }, 600) }
+                        },
                         Feature("Text messages", "Send texts from your Mac", featureIcons["sms"]!!, has(Manifest.permission.SEND_SMS)) { ask.launch(arrayOf(Manifest.permission.SEND_SMS)) },
                         Feature("Contacts", "Show names instead of numbers", featureIcons["contacts"]!!, has(Manifest.permission.READ_CONTACTS)) { ask.launch(arrayOf(Manifest.permission.READ_CONTACTS)) },
                     ),

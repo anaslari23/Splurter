@@ -31,7 +31,7 @@ class App : Application() {
                     "reply" -> NotifService.instance?.reply(m.getString("id"), m.getString("text"))
                     "tap", "swipe", "key", "text" -> ControlService.instance?.handle(m)
                     "audio_start" -> Audio.request(this, m.optString("src"))
-                    "audio_stop" -> AudioService.instance?.stopSelf()
+                    "audio_stop" -> Audio.stop()
                     "mirror_start" -> Mirror.request(this)
                     "mirror_stop" -> MirrorService.instance?.stopSelf()
                     "file", "file_end" -> Files.onJson(this, m)
