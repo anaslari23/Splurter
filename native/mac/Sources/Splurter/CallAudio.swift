@@ -94,6 +94,11 @@ final class CallAudio: ObservableObject {
             guard r.status == 0 else { return set(.failed("Could not copy the helper to the phone: \(r.output.prefix(120))")) }
         }
 
+        for line in adb.run(["-s", s, "forward", "--list"]).output.split(separator: "\n") { // forwards left by an app that was killed mid-session
+            let f = line.split(separator: " ").map(String.init)
+            if f.count >= 3, f[2].hasPrefix("localabstract:splurter_") { adb.run(["-s", s, "forward", "--remove", f[1]]) }
+        }
+
         // 3. Random socket name + token per session, so no other app can attach to the call audio.
         let name = "splurter_" + Self.random(8), token = Self.random(24)
         let fw = adb.run(["-s", s, "forward", "tcp:0", "localabstract:" + name])

@@ -81,15 +81,12 @@ public class Bridge {
         }
     }
 
-    static AudioAttributes assistantAttrs; static int oldAssistVol = -1;
-
     static void restore() {
         try {
             if (am != null) {
                 amc.getMethod("setMicrophoneMute", boolean.class).invoke(am, oldMute);
                 if (oldVol >= 0) amc.getMethod("setStreamVolume", int.class, int.class, int.class).invoke(am, 0, oldVol, 0);
             }
-            if (oldAssistVol >= 0 && assistantAttrs != null) amc.getMethod("setVolumeIndexForAttributes", AudioAttributes.class, int.class, int.class).invoke(am, assistantAttrs, oldAssistVol, 0);
             System.out.println("restored mic mute=" + oldMute + " voice volume=" + oldVol);
         } catch (Throwable e) { System.out.println("restore failed: " + e); }
     }
@@ -118,14 +115,6 @@ public class Bridge {
             try { rx = record(3, RATE, AudioFormat.CHANNEL_IN_MONO); System.out.println("downlink capture: 16 kHz mono"); }
             catch (Throwable e) { System.out.println("16 kHz mono capture failed (" + e + ")"); throw e; }
             final AudioTrack tx = track();
-            try { // the call-assistant stream has its own volume group; at 8/25 it quietly attenuated the Mac voice
-                AudioAttributes.Builder vb = new AudioAttributes.Builder().setContentType(AudioAttributes.CONTENT_TYPE_SPEECH);
-                AudioAttributes.Builder.class.getMethod("setSystemUsage", int.class).invoke(vb, 17); assistantAttrs = vb.build();
-                int max = (Integer) amc.getMethod("getMaxVolumeIndexForAttributes", AudioAttributes.class).invoke(am, assistantAttrs);
-                oldAssistVol = (Integer) amc.getMethod("getVolumeIndexForAttributes", AudioAttributes.class).invoke(am, assistantAttrs);
-                amc.getMethod("setVolumeIndexForAttributes", AudioAttributes.class, int.class, int.class).invoke(am, assistantAttrs, max, 0);
-                System.out.println("call-assistant volume " + oldAssistVol + " -> " + max);
-            } catch (Throwable e) { System.out.println("could not raise call-assistant volume: " + e + " " + e.getCause()); }
             tx.play(); // capture starts only after the client connects, so no stale audio is queued before we read
             System.out.println("capture state=" + rx.getRecordingState() + " track state=" + tx.getState() + " playState=" + tx.getPlayState());
 
