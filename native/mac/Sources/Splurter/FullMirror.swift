@@ -13,6 +13,11 @@ final class FullMirror: ObservableObject {
     enum Phase: Equatable { case idle, working(String), live, failed(String) }
     struct Shape { var w = 1080.0, h = 2424.0, radius = 0.0; var hole: (x: Double, y: Double, r: Double)? }
 
+    /// own: apps run on a second, virtual screen of the phone shown here, so the phone itself stays free (its real screen is untouched).
+    /// mirror: shows what the phone's own screen shows (lock screen, always-on display), and blanks the phone while you use it.
+    enum Mode: String { case own, mirror }
+    @Published var mode = Mode(rawValue: UserDefaults.standard.string(forKey: "phoneMode") ?? "") ?? .own
+    func setMode(_ m: Mode) { guard m != mode else { return }; mode = m; UserDefaults.standard.set(m.rawValue, forKey: "phoneMode"); stop(); DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { self.start() } }
     @Published var phase = Phase.idle
     @Published var shape = Shape()
     private let work = DispatchQueue(label: "fullmirror")
@@ -45,7 +50,7 @@ final class FullMirror: ObservableObject {
         guard let jar = Bundle.main.url(forResource: "scrcpy-server", withExtension: "jar") else { return set(.failed("The app is missing its phone-mirror helper")) }
         let r = adb.run(["-s", s, "push", jar.path, "/data/local/tmp/scrcpy-server.jar"], timeout: 30)
         guard r.status == 0 else { return set(.failed("Could not copy the helper to the phone: \(r.output.prefix(100))")) }
-        readShape(s)
+        let sh = readShape(s)
 
         let scid = String(format: "%08x", Int.random(in: 1..<0x7fff_ffff))
         let fw = adb.run(["-s", s, "forward", "tcp:0", "localabstract:scrcpy_" + scid])
@@ -53,7 +58,7 @@ final class FullMirror: ObservableObject {
         forwardPort = port
 
         let p = Process(); p.executableURL = URL(fileURLWithPath: adb.path!)
-        p.arguments = ["-s", s, "shell", "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 5.0.1 scid=\(scid) log_level=info tunnel_forward=true audio=false control=true cleanup=false max_size=1920 video_bit_rate=16000000 max_fps=120"]
+        p.arguments = ["-s", s, "shell", "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 5.0.1 scid=\(scid) log_level=info tunnel_forward=true audio=false control=true cleanup=false max_size=1920 video_bit_rate=16000000 max_fps=120" + (mode == .own ? " new_display=\(Int(sh.w))x\(Int(sh.h))/420" : "")]
         let out = Pipe(); p.standardOutput = out; p.standardError = out
         let up = DispatchSemaphore(value: 0)
         out.fileHandleForReading.readabilityHandler = { h in
@@ -121,7 +126,7 @@ final class FullMirror: ObservableObject {
     }
 
     /// Corner radius and camera hole straight from the phone, so the window matches its shape.
-    private func readShape(_ s: String) {
+    private func readShape(_ s: String) -> Shape {
         let d = Adb.shared.run(["-s", s, "shell", "dumpsys display; wm size"]).output
         func first(_ pattern: String) -> [String]? {
             guard let re = try? NSRegularExpression(pattern: pattern), let m = re.firstMatch(in: d, range: NSRange(d.startIndex..., in: d)) else { return nil }
@@ -133,6 +138,7 @@ final class FullMirror: ObservableObject {
         if let v = first(#"cutoutSpec=\{m ([\d.]+),([\d.]+) a ([\d.]+),"#), let x = Double(v[0]), let y = Double(v[1]), let r = Double(v[2]) { sh.hole = (x - r, y, r) }
         log("shape \(sh)")
         DispatchQueue.main.async { self.shape = sh }
+        return sh
     }
 
     // MARK: input (control socket, scrcpy message types)
@@ -153,7 +159,7 @@ final class FullMirror: ObservableObject {
     /// action: 0 down, 1 up, 2 move. x/y are 0...1 of the video frame.
     func touch(_ action: UInt8, _ x: Double, _ y: Double) {
         guard cfd >= 0, frame.w > 0, frame.h > 0 else { return } // not connected yet: a click then must not count as "using the phone"
-        if action == 0 { wakeIfIdle(); blankPanel() }
+        if action == 0, mode == .mirror { wakeIfIdle(); blankPanel() }
         let px = Int(min(max(x, 0), 1) * Double(frame.w - 1)), py = Int(min(max(y, 0), 1) * Double(frame.h - 1))
         send([2, action] + Self.be(-1, 8) + Self.be(px, 4) + Self.be(py, 4) + Self.be(frame.w, 2) + Self.be(frame.h, 2)
              + Self.be(action == 1 ? 0 : 0xffff, 2) + Self.be(1, 4) + Self.be(action == 1 ? 0 : 1, 4))
@@ -201,8 +207,12 @@ struct FullMirrorView: View {
                 bar("chevron.left", "Back") { m.key(FullMirror.back) }
                 bar("circle", "Home") { m.key(FullMirror.home) }
                 bar("square.on.square", "Recent apps") { m.key(FullMirror.recents) }
-                bar("sun.max", "Wake") { m.key(FullMirror.wakeup) }
-                bar("power", "Lock / sleep") { m.key(FullMirror.power) }
+                if m.mode == .mirror {
+                    bar("sun.max", "Wake") { m.key(FullMirror.wakeup) }
+                    bar("power", "Lock / sleep") { m.key(FullMirror.power) }
+                }
+                Button { m.setMode(m.mode == .own ? .mirror : .own) } label: { Image(systemName: m.mode == .own ? "rectangle.on.rectangle" : "iphone.gen3") }
+                    .buttonStyle(.plain).help(m.mode == .own ? "Switch to mirroring the phone's own screen (lock screen, always-on display)" : "Switch to using the phone's apps on this Mac's own screen")
             }
             .padding(.horizontal, 14).padding(.vertical, 6).background(.regularMaterial, in: Capsule())
         }
