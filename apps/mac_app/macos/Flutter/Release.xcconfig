@@ -1,7 +1,0 @@
-#include: "Flutter/Flutter.xcconfig"
-FLUTTER_BUILD_MODE=Release
-FLUTTER_TARGET=lib/main.dart
-FLUTTER_BUILD_DIR=build
-FLUTTER_FRAMEWORK_DIR=/Users/anaslari/development/flutter/bin/cache/artifacts/engine/ios
-FLUTTER_BUILD_NAME=0.1.0
-FLUTTER_BUILD_NUMBER=1
