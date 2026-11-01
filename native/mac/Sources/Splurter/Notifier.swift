@@ -18,7 +18,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             UNNotificationCategory(identifier: "reply", actions: [reply, dismiss], intentIdentifiers: [], options: [.customDismissAction]),
             UNNotificationCategory(identifier: "plain", actions: [dismiss], intentIdentifiers: [], options: [.customDismissAction]),
         ])
-        center.requestAuthorization(options: [.alert, .sound]) { ok, err in NSLog("notif auth: \(ok) \(String(describing: err))") }
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     func show(_ m: [String: Any]) {
@@ -30,7 +30,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         c.categoryIdentifier = (m["canReply"] as? Bool == true) ? "reply" : "plain"
         c.userInfo = ["id": id]
         c.interruptionLevel = (m["sync"] as? Bool == true) ? .passive : .active // catch-up items arrive quietly
-        center.add(UNNotificationRequest(identifier: id, content: c, trigger: nil)) { NSLog("notif add \(id): \(String(describing: $0))") }
+        center.add(UNNotificationRequest(identifier: id, content: c, trigger: nil))
     }
 
     /// Incoming calls are one banner with id "call", replaced as the number/name arrive and removed on idle.
@@ -40,7 +40,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         n.title = c.name.isEmpty ? (c.number.isEmpty ? "Incoming call" : c.number) : c.name
         n.subtitle = "Incoming call"; n.body = c.name.isEmpty ? "" : c.number
         n.categoryIdentifier = "call"; n.sound = .default
-        center.add(UNNotificationRequest(identifier: "call", content: n, trigger: nil)) { Debug.log("call banner add: \(String(describing: $0))") }
+        center.add(UNNotificationRequest(identifier: "call", content: n, trigger: nil))
     }
 
     func received(_ url: URL) {

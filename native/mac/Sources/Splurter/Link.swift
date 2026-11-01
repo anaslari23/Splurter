@@ -188,7 +188,6 @@ final class Link: ObservableObject {
             try? incoming[id]?.h.write(contentsOf: plain.dropFirst(5)); return
         }
         guard let m = try? JSONSerialization.jsonObject(with: plain.dropFirst()) as? [String: Any], let t = m["t"] as? String else { return }
-        if t == "call" { Debug.log("call message: \(m)") }
         switch t {
         case "hello":
             let name = m["name"] as? String ?? "Phone"
@@ -216,7 +215,6 @@ final class Link: ObservableObject {
             }
         case "sms_sent": DispatchQueue.main.async { self.log("message.fill", "Text sent to \(m["to"] ?? "?")") }
         case "audio_state":
-            Debug.log("audio_state from phone: \(m)")
             DispatchQueue.main.async {
                 if let l = m["level"] as? Double { AudioBridge.shared.level = l }
                 switch m["state"] as? String { case "live": AudioBridge.shared.state = "live"; case "off": AudioBridge.shared.stop(notifyPhone: false); default: break }
@@ -252,14 +250,5 @@ final class Link: ObservableObject {
             return String(cString: h)
         }
         return "127.0.0.1"
-    }
-}
-
-
-enum Debug {
-    static func log(_ s: String) {
-        let line = "\(Date()) \(s)\n"
-        if let h = FileHandle(forWritingAtPath: "/tmp/splurter.log") { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
-        else { try? line.write(toFile: "/tmp/splurter.log", atomically: false, encoding: .utf8) }
     }
 }

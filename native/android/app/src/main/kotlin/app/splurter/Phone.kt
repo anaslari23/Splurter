@@ -13,7 +13,6 @@ object Phone {
     @Volatile var state = "idle"
 
     fun report(ctx: Context, state: String?, number: String?) {
-        android.util.Log.d("splurter", "phone state=$state number=${number != null} connected=${App.link.connected}")
         if (number != null) lastNumber = number
         val st = state?.lowercase() ?: return
         this.state = st

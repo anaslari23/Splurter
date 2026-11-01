@@ -13,14 +13,12 @@ final class AudioBridge: ObservableObject {
     private let play16 = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
     private let wire16 = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true)!
     private var pending = 0
-    private var sent = 0, got = 0
     private var talkingUntil = Date.distantPast // half-duplex echo guard, see play()
 
     func start(source: String = "mic") {
-        state = "waiting"; Debug.log("audio: start requested")
+        state = "waiting"
         Link.shared.sendMessage(["t": "audio_start", "src": source])
         AVCaptureDevice.requestAccess(for: .audio) { ok in
-            Debug.log("audio: mic permission \(ok)")
             DispatchQueue.main.async { ok ? self.startEngines() : { self.state = "off" }() }
         }
     }
@@ -39,9 +37,8 @@ final class AudioBridge: ObservableObject {
         pe.attach(player); pe.connect(player, to: pe.mainMixerNode, format: play16)
 
         let ce = AVAudioEngine(); capture = ce
-        do { try ce.inputNode.setVoiceProcessingEnabled(true) } catch { Debug.log("audio: VP unavailable \(error)") }
+        do { try ce.inputNode.setVoiceProcessingEnabled(true) } catch {} // no voice processing: still works, just no noise suppression
         let inFmt = ce.inputNode.outputFormat(forBus: 0)
-        Debug.log("audio: input format \(inFmt)")
         guard let conv = AVAudioConverter(from: inFmt, to: wire16) else { return }
         ce.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inFmt) { [weak self] buf, _ in
             guard let self, let out = AVAudioPCMBuffer(pcmFormat: self.wire16, frameCapacity: 4096) else { return }
@@ -54,19 +51,16 @@ final class AudioBridge: ObservableObject {
             let n = Int(out.frameLength)
             var sum = 0.0; for i in 0..<n { let v = Double(p[i]) / 32768; sum += v * v }
             if (sum / Double(n)).squareRoot() > 0.015 { self.talkingUntil = Date().addingTimeInterval(0.4) } // we're speaking
-            self.sent += 1; if self.sent % 100 == 1 { Debug.log("audio: sent \(self.sent) frames to phone") }
             Link.shared.sendAudio(Data(bytes: p, count: n * 2))
         }
         do {
             try pe.start(); player.play()
             try ce.start()
-            Debug.log("audio: engines running")
-        } catch { Debug.log("audio: engine failed \(error)"); stop() }
+        } catch { stop() }
     }
 
     /// Phone -> Mac frame ([3][PCM16]).
     func play(_ d: Data) {
-        got += 1; if got % 100 == 1 { Debug.log("audio: received \(got) frames from phone, state=\(state)") }
         guard state != "off", d.count > 1, Date() > talkingUntil else { return } // muted while you speak: the phone mic would send your voice back as echo
         let n = (d.count - 1) / 2
         guard pending < 12, let buf = AVAudioPCMBuffer(pcmFormat: play16, frameCapacity: AVAudioFrameCount(n)) else { return } // >240 ms queued: drop, stay live

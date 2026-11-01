@@ -1,0 +1,14 @@
+{
+  "roots": [
+    "splurter"
+  ],
+  "packages": [
+    {
+      "name": "splurter",
+      "version": "0.0.0",
+      "dependencies": [],
+      "devDependencies": []
+    }
+  ],
+  "configVersion": 1
+}
