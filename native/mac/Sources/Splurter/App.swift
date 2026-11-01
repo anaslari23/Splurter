@@ -32,7 +32,6 @@ struct SplurterApp: App {
 struct MenuView: View {
     @ObservedObject var link: Link
     @Environment(\.openWindow) private var openWindow
-    @ObservedObject private var audio = AudioBridge.shared
     @State private var showDial = false
     @State private var number = ""
     @State private var message = ""
@@ -51,14 +50,6 @@ struct MenuView: View {
                     if let c = link.call { callCard(c) }
                     actions
                     if showDial { dialForm }
-                    if connected && link.call == nil { // exercises the audio bridge without needing a call
-                        HStack(spacing: 8) {
-                            Image(systemName: "waveform").foregroundStyle(.secondary)
-                            Text(audio.state == "live" ? "Phone mic level \(Int(audio.level * 100))%" : audio.state == "waiting" ? "Tap the notification on your phone" : "Audio test (no call needed)").font(.callout)
-                            Spacer()
-                            Button(audio.state == "off" ? "Start" : "Stop") { audio.state == "off" ? audio.start() : audio.stop() }
-                        }
-                    }
                     if let t = link.transfer { Label(t, systemImage: "arrow.up.arrow.down.circle").font(.caption).foregroundStyle(.secondary) }
                     activity
                 }
@@ -113,23 +104,13 @@ struct MenuView: View {
             Image(systemName: "phone.fill").foregroundStyle(.white).frame(width: 34, height: 34).background(.green, in: Circle())
             VStack(alignment: .leading) {
                 Text(who.isEmpty ? "Unknown caller" : who).font(.headline)
-                Text(c.state == "ringing" ? "Incoming call" : "On call").font(.caption).foregroundStyle(.secondary)
+                Text(c.state == "ringing" ? "Incoming call" : "On call · voice stays on your phone").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             if c.state == "ringing" { Button("Answer") { link.sendMessage(["t": "call_answer"]) }.tint(.green).buttonStyle(.borderedProminent) }
-            if c.state == "offhook" {
-                Button(audio.state == "off" ? "Use Mac audio" : "Stop audio") { audio.state == "off" ? audio.start() : audio.stop() }
-            }
             Button(c.state == "ringing" ? "Decline" : "End") { link.sendMessage(["t": "call_end"]) }.tint(.red).buttonStyle(.bordered)
         }
         .padding(12).background(.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(alignment: .bottom) {
-            if audio.state != "off" {
-                Text(audio.state == "waiting" ? "Tap the notification on your phone, and turn on speakerphone" : "Phone mic level \(Int(audio.level * 100))%")
-                    .font(.caption2).foregroundStyle(.secondary).offset(y: 16)
-            }
-        }
-        .padding(.bottom, audio.state == "off" ? 0 : 14)
     }
 
     private var actions: some View {
