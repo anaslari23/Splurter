@@ -19,7 +19,7 @@ directly over your Wi-Fi, end-to-end encrypted. No account and no cloud.</p>
 | **Calls** | Incoming-call popup on the Mac with the caller's name and Answer or Decline. Dial from the Mac. | ✅ |
 | **Texts** | Send an SMS from the Mac. Incoming texts arrive as notifications. | ✅ |
 | **Files** | Drag files onto the menu-bar popover to send to the phone. Share from the phone to send to the Mac. | ✅ |
-| **Screen mirroring + control** | Live phone screen in a Mac window. Click, drag, scroll and type into it. Needs your explicit approval on the phone each time. | ✅ |
+| **Screen mirroring + control** | A Mac window shaped like your phone (its corner radius and camera hole). Click, drag, scroll and type into it. It works while the phone is locked or on its always-on display, with no prompt on the phone. It uses the same wireless-debugging setup as call audio; without it, a basic screen-share mirror (approved on the phone each time) is the fallback. | ✅ |
 | **Call audio on the Mac** | Talk on a cellular call through the Mac: the caller plays on the Mac and your Mac mic goes into the call. | 🧪 beta ³ |
 | **Phone as webcam** | Use the phone camera as a Mac camera. | ⏳ not built ⁴ |
 
@@ -108,7 +108,7 @@ docs/         protocol and project docs
 - **Call audio (beta).** It needs Wireless debugging, which Android can switch off by itself (after a Wi-Fi change or a reboot); the app restarts adb once and retries, then asks you to turn it back on. It has only been tested on one phone (Pixel 9a, Android 17), and other makers' builds may differ. No echo cancellation, so use headphones. Bluetooth routes were also tried and do not work on macOS: it refuses hands-free call audio, and its Bluetooth controller rejects the connection timing Android's hearing-aid protocol demands.
 - **macOS 27 audio engine.** Voice processing and playback cannot run in one `AVAudioEngine` on macOS 27 (error -10875), so call audio uses separate capture and playback engines (and macOS voice processing stayed off).
 - **Clipboard.** Phone to Mac cannot be automatic on Android 10+.
-- **Mirroring.** The video size is fixed when a session starts (rotating the phone mid-session is not handled). Secure screens such as banking apps block capture by design. Dragging is sent on release rather than live.
+- **Mirroring.** The full mirror needs Wireless debugging (same limits as call audio) and has only been tested on a Pixel 9a. It has not been tried on a phone with a PIN or on secure screens, which block capture by design. The basic fallback mirror fixes its video size at start (no rotation) and sends dragging on release.
 - **Typing into the mirror** appends to or deletes from the end of the focused field (no cursor positioning).
 - **Single Mac per phone**, and one active phone connection at a time on the Mac.
 - **Untested:** switching Wi-Fi networks, and replying to a real chat notification.
