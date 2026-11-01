@@ -21,7 +21,8 @@ final class Link: ObservableObject {
     @Published var pairing = false { didSet { if pairing { refreshQR() } } }
     @Published var devices = Store.loadDevices()
     @Published var connectedName: String?
-    @Published var log: [String] = []
+    struct Entry: Identifiable { let id = UUID(); let icon: String; let text: String; let time = Date() }
+    @Published var activity: [Entry] = []
     struct Call { var state: String; var number: String; var name: String }
     @Published var call: Call?
     @Published var transfer: String?
@@ -150,7 +151,7 @@ final class Link: ObservableObject {
                 sem.wait()
             }
             self.q.sync { self.send(["t": "file_end", "id": Int(id)]) }
-            DispatchQueue.main.async { self.transfer = nil; self.log("✓ sent \(url.lastPathComponent)") }
+            DispatchQueue.main.async { self.transfer = nil; self.log("arrow.up.doc", "Sent \(url.lastPathComponent)") }
         }
     }
 
@@ -170,7 +171,7 @@ final class Link: ObservableObject {
             DispatchQueue.main.async { self.transfer = "Receiving \(url.lastPathComponent)…" }
         } else if let f = incoming.removeValue(forKey: id) {
             try? f.h.close()
-            DispatchQueue.main.async { self.transfer = nil; Notifier.shared.received(f.url); self.log("✓ received \(f.url.lastPathComponent)") }
+            DispatchQueue.main.async { self.transfer = nil; Notifier.shared.received(f.url); self.log("arrow.down.doc", "Received \(f.url.lastPathComponent)") }
         }
     }
 
@@ -197,15 +198,16 @@ final class Link: ObservableObject {
             DispatchQueue.main.async {
                 NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
                 self.lastChange = NSPasteboard.general.changeCount
-                self.log(" ← \(text.prefix(40))")
+                self.log("doc.on.clipboard", "Clipboard from phone: \(text.prefix(40))")
             }
         case "call":
             let c = Call(state: m["state"] as? String ?? "idle", number: m["number"] as? String ?? "", name: m["name"] as? String ?? "")
             DispatchQueue.main.async {
+                if c.state == "ringing", self.call?.state != "ringing" { self.log("phone.arrow.down.left", "Incoming call \(c.name.isEmpty ? c.number : c.name)") }
                 self.call = c.state == "idle" ? nil : c
                 Notifier.shared.call(c)
             }
-        case "sms_sent": DispatchQueue.main.async { self.log("✓ text sent to \(m["to"] ?? "?")") }
+        case "sms_sent": DispatchQueue.main.async { self.log("message.fill", "Text sent to \(m["to"] ?? "?")") }
         case "file", "file_end": receive(m, t)
         case "notif": DispatchQueue.main.async { Notifier.shared.show(m) }
         case "notif_gone": if let id = m["id"] as? String { DispatchQueue.main.async { Notifier.shared.remove(id) } }
@@ -213,7 +215,7 @@ final class Link: ObservableObject {
         }
     }
 
-    private func log(_ s: String) { log = Array((log + [s]).suffix(5)) }
+    private func log(_ icon: String, _ text: String) { activity = Array((activity + [Entry(icon: icon, text: text)]).suffix(20)) }
 
     private func pollPasteboard() {
         let pb = NSPasteboard.general
@@ -221,7 +223,7 @@ final class Link: ObservableObject {
         lastChange = pb.changeCount
         guard let text = pb.string(forType: .string) else { return }
         q.async { self.send(["t": "clip", "text": text]) }
-        log(" → \(text.prefix(40))")
+        log("doc.on.clipboard", "Clipboard sent to phone: \(text.prefix(40))")
     }
 
     static func lanIP() -> String {

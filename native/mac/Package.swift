@@ -1,7 +1,8 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.0
 import PackageDescription
 let package = Package(
     name: "Splurter",
-    platforms: [.macOS(.v13)],
-    targets: [.executableTarget(name: "Splurter", path: "Sources/Splurter")]
+    platforms: [.macOS(.v15)],
+    targets: [.executableTarget(name: "Splurter", path: "Sources/Splurter")],
+    swiftLanguageModes: [.v5]
 )
