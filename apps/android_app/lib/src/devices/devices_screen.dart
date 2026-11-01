@@ -5,8 +5,6 @@ import 'package:shared_types/shared_types.dart';
 import 'package:continuity_ui/continuity_ui.dart';
 import 'package:continuity_state/continuity_state.dart';
 import 'package:platform_bindings/platform_bindings.dart';
-import '../../main.dart';
-
 class DevicesScreen extends ConsumerStatefulWidget {
   const DevicesScreen({super.key});
 
@@ -32,6 +30,10 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       seenKeys.add(key);
       return true;
     }).toList();
+
+    if (pairedDevice != null && remoteDevices.isEmpty) {
+      Future.microtask(() => ref.read(pairingStateProvider.notifier).unpair());
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -59,30 +61,6 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
               padding: const EdgeInsets.all(24),
               children: [
                 const AndroidPermissionBanner(),
-                Card(
-                  elevation: 0,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  color: Colors.amber.shade900.withValues(alpha: 0.18),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: Colors.amber.shade400.withValues(alpha: 0.4)),
-                  ),
-                  child: ListTile(
-                    leading: const Icon(Icons.shield_outlined, color: Colors.amberAccent, size: 28),
-                    title: const Text(
-                      'Continuity Permissions',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amberAccent),
-                    ),
-                    subtitle: const Text(
-                      'Directly grant Notification, Keyboard & Battery permissions',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    trailing: FilledButton.tonal(
-                      onPressed: () => _showPermissionsModal(context),
-                      child: const Text('Manage'),
-                    ),
-                  ),
-                ),
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -166,30 +144,6 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const AndroidPermissionBanner(),
-                Card(
-                  elevation: 0,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  color: Colors.amber.shade900.withValues(alpha: 0.18),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: Colors.amber.shade400.withValues(alpha: 0.4)),
-                  ),
-                  child: ListTile(
-                    leading: const Icon(Icons.shield_outlined, color: Colors.amberAccent, size: 28),
-                    title: const Text(
-                      'Continuity Permissions',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amberAccent),
-                    ),
-                    subtitle: const Text(
-                      'Directly grant Notification, Keyboard & Battery permissions',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    trailing: FilledButton.tonal(
-                      onPressed: () => _showPermissionsModal(context),
-                      child: const Text('Manage'),
-                    ),
-                  ),
-                ),
                     const SizedBox(height: 16),
                     Icon(
                       Icons.devices,
@@ -215,85 +169,6 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                       icon: const Icon(Icons.qr_code_scanner),
                       label: const Text('Scan QR Code'),
                     ),
-                    if (remoteDevices.isNotEmpty) ...[
-                      const SizedBox(height: 32),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(Icons.wifi_tethering_rounded, color: theme.colorScheme.primary, size: 18),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Available Mac Devices on Local Network',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            ...remoteDevices.map((dev) => Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.surface,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: theme.colorScheme.outlineVariant),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.laptop_mac_rounded, color: theme.colorScheme.primary, size: 22),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          dev.name.isNotEmpty ? dev.name : 'Mac (${dev.platform})',
-                                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                                        ),
-                                        Text(
-                                          dev.address.isNotEmpty ? 'IP: ${dev.address}' : 'Ready to pair via Wi-Fi',
-                                          style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 11),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  FilledButton(
-                                    onPressed: () async {
-                                      ref.read(pairingStateProvider.notifier).complete(dev.copyWith(isPaired: true));
-                                      final hostUid = dev.address.isNotEmpty ? dev.address : 'mac-channel-1';
-                                      await setHostUid(hostUid);
-                                      ref.read(relayLoopProvider).start(uid: hostUid, deviceId: kAndroidDeviceId);
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Connected to ${dev.name} instantly!')),
-                                        );
-                                      }
-                                    },
-                                    style: FilledButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                      minimumSize: Size.zero,
-                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                    child: const Text('Connect Instantly', style: TextStyle(fontSize: 12)),
-                                  ),
-                                ],
-                              ),
-                            )),
-                          ],
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),

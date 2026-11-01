@@ -146,8 +146,9 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
     }
 
     const MethodChannel('splurter/notifications').setMethodCallHandler((call) async {
-      if (call.method == 'onNotificationPosted') {
+      if (call.method == 'onNotificationPosted' || call.method == 'onNotificationRemoved') {
         final payload = Map<String, dynamic>.from(call.arguments as Map? ?? {});
+        payload['action'] = call.method == 'onNotificationRemoved' ? 'remove' : 'post';
         final relay = ref.read(relayLoopProvider);
         if (relay.isConnected && relay.currentUid != null && relay.currentUid!.isNotEmpty) {
           final snap = await FirebaseFirestore.instance
@@ -172,6 +173,28 @@ class _SplurterAppState extends ConsumerState<SplurterApp> {
 
     startForegroundService();
     const MethodChannel('splurter/notifications').invokeMethod('syncActiveNotifications').ignore();
+
+    listenCallEvents().listen((callEvent) async {
+      final relay = ref.read(relayLoopProvider);
+      if (relay.isConnected && relay.currentUid != null && relay.currentUid!.isNotEmpty) {
+        final snap = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(relay.currentUid!)
+            .collection('devices')
+            .get();
+        for (final doc in snap.docs) {
+          if (doc.id != kAndroidDeviceId) {
+            await relay.send(
+              uid: relay.currentUid!,
+              senderId: kAndroidDeviceId,
+              recipientId: doc.id,
+              kind: RelayKind.call,
+              payload: callEvent.toJson(),
+            );
+          }
+        }
+      }
+    });
 
 
     // Request battery exemption once — opens the direct system dialog

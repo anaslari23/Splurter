@@ -1,18 +1,22 @@
 package com.splurter.splurter_android
 
 import android.app.Notification
+import android.app.RemoteInput
 import android.content.Intent
+import android.os.Bundle
 import android.os.IBinder
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.ConcurrentHashMap
 
 class NotificationListener : NotificationListenerService() {
 
     companion object {
         const val CHANNEL_NAME = "splurter/notifications"
         var instance: NotificationListener? = null
+        val replyActions = ConcurrentHashMap<String, Notification.Action>()
     }
 
     private var flutterEngine: FlutterEngine? = null
@@ -86,12 +90,30 @@ class NotificationListener : NotificationListenerService() {
                 packageName.substringAfterLast('.').replaceFirstChar { char -> char.uppercase() }
             }
 
+            val key = it.key ?: it.id.toString()
+
+            // Detect if this notification has a direct reply action (e.g. WhatsApp, Messages, Telegram, Slack)
+            var canReply = false
+            val actions = it.notification.actions
+            if (actions != null) {
+                for (action in actions) {
+                    val remoteInputs = action.remoteInputs
+                    if (remoteInputs != null && remoteInputs.isNotEmpty()) {
+                        replyActions[key] = action
+                        canReply = true
+                        break
+                    }
+                }
+            }
+
             val payload = mapOf(
-                "id" to (it.key ?: (it.id.toString() + "-" + System.currentTimeMillis())),
+                "action" to "post",
+                "id" to key,
                 "packageName" to packageName,
                 "appName" to appName,
                 "title" to title,
                 "text" to text,
+                "canReply" to canReply,
                 "timestamp" to System.currentTimeMillis()
             )
 
@@ -146,8 +168,12 @@ class NotificationListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         super.onNotificationRemoved(sbn)
         sbn?.let {
+            val key = it.key ?: it.id.toString()
+            replyActions.remove(key)
+
             val payload = mapOf(
-                "id" to it.id.toString() + "-" + System.nanoTime().toString(),
+                "action" to "remove",
+                "id" to key,
                 "packageName" to it.packageName
             )
             channel?.invokeMethod("onNotificationRemoved", payload)
@@ -178,8 +204,35 @@ class NotificationListener : NotificationListenerService() {
         }
     }
 
+    fun reply(key: String, text: String): Boolean {
+        val action = replyActions[key] ?: return false
+        val remoteInputs = action.remoteInputs ?: return false
+        val intent = Intent()
+        val bundle = Bundle()
+        for (remoteInput in remoteInputs) {
+            bundle.putCharSequence(remoteInput.resultKey, text)
+        }
+        RemoteInput.addResultsToIntent(remoteInputs, intent, bundle)
+        return try {
+            action.actionIntent.send(this, 0, intent)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun dismiss(key: String): Boolean {
+        return try {
+            cancelNotification(key)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     override fun onDestroy() {
         if (instance == this) instance = null
+        replyActions.clear()
         super.onDestroy()
         flutterEngine?.destroy()
         flutterEngine = null

@@ -14,6 +14,15 @@ class AppDelegate: FlutterAppDelegate {
     private var fileHandler: FileHandler?
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
+    /// IP address of the paired Android device — written by Dart via setPairedDevice
+    private var pairedDeviceIp: String? {
+        get { UserDefaults.standard.string(forKey: "splurter.paired_device_ip") }
+        set { UserDefaults.standard.set(newValue, forKey: "splurter.paired_device_ip") }
+    }
+    private var pairedDeviceName: String? {
+        get { UserDefaults.standard.string(forKey: "splurter.paired_device_name") }
+        set { UserDefaults.standard.set(newValue, forKey: "splurter.paired_device_name") }
+    }
 
     override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         return true
@@ -92,7 +101,7 @@ class AppDelegate: FlutterAppDelegate {
         }
 
         let networkChannel = FlutterMethodChannel(name: "splurter/network", binaryMessenger: messenger)
-        networkChannel.setMethodCallHandler { call, result in
+        networkChannel.setMethodCallHandler { [weak self] call, result in
             if call.method == "getNetworkInfo" {
                 var ip = "127.0.0.1"
                 for address in Host.current().addresses {
@@ -107,6 +116,14 @@ class AppDelegate: FlutterAppDelegate {
                     "isConnected": true
                 ])
             } else if call.method == "startListening" {
+                result(nil)
+            } else if call.method == "setPairedDevice" {
+                // Dart calls this when an Android device pairs/connects so the
+                // menu-bar Mirror button can launch scrcpy without opening the window.
+                let args = call.arguments as? [String: Any]
+                self?.pairedDeviceIp   = args?["ipAddress"]   as? String
+                self?.pairedDeviceName = args?["deviceName"]  as? String
+                self?.rebuildMenu()
                 result(nil)
             } else {
                 result(FlutterMethodNotImplemented)
@@ -164,8 +181,31 @@ class AppDelegate: FlutterAppDelegate {
     private func rebuildMenu() {
         let menu = NSMenu()
         menu.delegate = self as? NSMenuDelegate
-        menu.addItem(withTitle: "Splurter — Active", action: nil, keyEquivalent: "")
+
+        // ── Status header ──────────────────────────────────────────────
+        let headerTitle: String
+        if let name = pairedDeviceName, !name.isEmpty {
+            headerTitle = "Splurter — \(name) Connected"
+        } else {
+            headerTitle = "Splurter — No Device Paired"
+        }
+        let header = NSMenuItem(title: headerTitle, action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
         menu.addItem(NSMenuItem.separator())
+
+        // ── Mirror Screen (primary action) ─────────────────────────────
+        let mirrorItem = NSMenuItem(
+            title: "📱  Mirror Phone Screen",
+            action: #selector(launchMirror),
+            keyEquivalent: "m"
+        )
+        mirrorItem.target = self
+        mirrorItem.isEnabled = (pairedDeviceIp != nil && !(pairedDeviceIp?.isEmpty ?? true))
+        menu.addItem(mirrorItem)
+        menu.addItem(NSMenuItem.separator())
+
+        // ── Clipboard quick push ───────────────────────────────────────
         menu.addItem(withTitle: "📋  Push Clipboard Now", action: #selector(pushClipboardNow), keyEquivalent: "v")
 
         let history = clipboardMonitor?.getHistory() ?? []
@@ -185,10 +225,35 @@ class AppDelegate: FlutterAppDelegate {
         }
 
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "Show Window", action: #selector(showMainWindow), keyEquivalent: "")
+        menu.addItem(withTitle: "Open Splurter", action: #selector(showMainWindow), keyEquivalent: "")
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
 
         statusItem?.menu = menu
+    }
+
+    @objc private func launchMirror() {
+        guard let ip = pairedDeviceIp, !ip.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No Device Connected"
+            alert.informativeText = "Pair your Android phone in Splurter first, then try mirroring."
+            alert.runModal()
+            return
+        }
+        let deviceName = pairedDeviceName ?? "Android"
+        let port = 5555
+        let scrcpyPath = FileManager.default.fileExists(atPath: "/opt/homebrew/bin/scrcpy")
+            ? "/opt/homebrew/bin/scrcpy"
+            : (FileManager.default.fileExists(atPath: "/usr/local/bin/scrcpy") ? "/usr/local/bin/scrcpy" : "scrcpy")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        let cmd = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; "
+            + "adb tcpip \(port) 2>/dev/null; "
+            + "adb connect \(ip):\(port) 2>/dev/null; "
+            + "if adb devices | grep -w \"\(ip):\(port)\" | grep -q \"device\"; "
+            + "then \(scrcpyPath) -s \(ip):\(port) --window-title=\"Splurter — \(deviceName)\" --stay-awake --always-on-top; "
+            + "else \(scrcpyPath) --window-title=\"Splurter — \(deviceName)\" --stay-awake --always-on-top; fi"
+        process.arguments = ["-c", cmd]
+        try? process.run()
     }
 
     @objc private func handleHistoryClick(_ sender: NSMenuItem) {
@@ -435,6 +500,23 @@ class AppDelegate: FlutterAppDelegate {
                 UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
                 result(nil)
 
+            // ── Incoming call from Android ──────────────────────────────
+            case "showCall":
+                guard let args = call.arguments as? [String: Any] else {
+                    result(FlutterError(code: "INVALID_ARGS", message: nil, details: nil))
+                    return
+                }
+                let callId      = args["callId"] as? String ?? UUID().uuidString
+                let callerName  = args["callerName"] as? String ?? "Unknown"
+                let number      = args["number"] as? String ?? ""
+                self.showIncomingCallNotification(callId: callId, callerName: callerName, number: number)
+                result(nil)
+
+            case "dismissCall":
+                let callId = (call.arguments as? [String: Any])?["callId"] as? String ?? ""
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["call_\(callId)"])
+                result(nil)
+
             default:
                 result(FlutterMethodNotImplemented)
             }
@@ -447,33 +529,94 @@ class AppDelegate: FlutterAppDelegate {
 
     private func showNativeNotification(id: String, appName: String, title: String, body: String) {
         let content = UNMutableNotificationContent()
-        content.title = "[\(appName)] \(title)"
-        content.body = body
-        content.sound = .default
-        // Add a Dismiss action that sends dismissal back to Android via relay
+
+        // ── Structure matching iPhone-style grouped notifications ────────
+        content.title    = title.isEmpty ? appName : title
+        content.subtitle = appName
+        content.body     = body
+        content.sound    = .default
+
+        // ── threadIdentifier = appName groups per-app like iOS ───────────
+        content.threadIdentifier = appName
+        content.summaryArgument  = appName
+
+        // ── Per-app dismiss action ───────────────────────────────────────
+        let categoryId = "ANDROID_NOTIF_\(appName.uppercased().replacingOccurrences(of: " ", with: "_"))"
         let dismissAction = UNNotificationAction(
             identifier: "DISMISS",
             title: "Dismiss on Android",
             options: []
         )
         let category = UNNotificationCategory(
-            identifier: "ANDROID_NOTIF",
+            identifier: categoryId,
             actions: [dismissAction],
             intentIdentifiers: [],
             options: []
         )
-        UNUserNotificationCenter.current().setNotificationCategories([category])
-        content.categoryIdentifier = "ANDROID_NOTIF"
+        UNUserNotificationCenter.current().getNotificationCategories { existing in
+            var updated = existing.filter { $0.identifier != categoryId }
+            updated.insert(category)
+            UNUserNotificationCenter.current().setNotificationCategories(updated)
+        }
+        content.categoryIdentifier = categoryId
+
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error { print("[Splurter] Notification error: \(error)") }
+        }
+    }
+
+    // ── Native incoming call notification (iPhone Continuity style) ──────────
+    private func showIncomingCallNotification(callId: String, callerName: String, number: String) {
+        let content = UNMutableNotificationContent()
+
+        // Prominent call-style layout
+        content.title    = callerName.isEmpty ? "Incoming Call" : callerName
+        content.subtitle = number.isEmpty ? "Android Phone" : number
+        content.body     = "Incoming call via Android — tap to answer"
+        content.sound    = UNNotificationSound.defaultCritical   // louder, like a phone ring
+        content.threadIdentifier = "splurter_incoming_call"
+
+        // timeSensitive interruption breaks through Focus / Do Not Disturb
+        // exactly like iPhone Handoff calls do on macOS 12+
+        if #available(macOS 12.0, *) {
+            content.interruptionLevel = .timeSensitive
+        }
+
+        // ── CALL category: Answer (foreground) + Decline (destructive) ───
+        let answerAction = UNNotificationAction(
+            identifier: "ANSWER_CALL",
+            title: "Answer",
+            options: [.foreground]          // brings app to front when tapped
+        )
+        let declineAction = UNNotificationAction(
+            identifier: "DECLINE_CALL",
+            title: "Decline",
+            options: [.destructive]         // red button like iPhone
+        )
+        let callCategory = UNNotificationCategory(
+            identifier: "INCOMING_CALL",
+            actions: [answerAction, declineAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        UNUserNotificationCenter.current().getNotificationCategories { existing in
+            var updated = existing.filter { $0.identifier != "INCOMING_CALL" }
+            updated.insert(callCategory)
+            UNUserNotificationCenter.current().setNotificationCategories(updated)
+        }
+        content.categoryIdentifier = "INCOMING_CALL"
+
+        // Embed callId in userInfo so we can relay answer/decline
+        content.userInfo = ["callId": callId]
 
         let request = UNNotificationRequest(
-            identifier: id,
+            identifier: "call_\(callId)",
             content: content,
-            trigger: nil // deliver immediately
+            trigger: nil
         )
         UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("[Splurter] Notification error: \(error)")
-            }
+            if let error = error { print("[Splurter] Call notification error: \(error)") }
         }
     }
 }
@@ -491,15 +634,44 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         completionHandler([.banner, .sound])
     }
 
-    // Handle Dismiss action tap — relay back to Android
+    // Handle notification action taps — relay back to Flutter / Android
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.actionIdentifier == "DISMISS" {
+        let callId = response.notification.request.content.userInfo["callId"] as? String ?? ""
+
+        switch response.actionIdentifier {
+        case "DISMISS":
             let notifId = response.notification.request.identifier
             _notificationChannel?.invokeMethod("onDismissedOnMac", arguments: ["id": notifId])
+
+        case "ANSWER_CALL":
+            // Bring window to front
+            NSApp.activate(ignoringOtherApps: true)
+            _notificationChannel?.invokeMethod("onCallAction", arguments: [
+                "action": "answer",
+                "callId": callId
+            ])
+            // Auto-dismiss the call notification from Notification Center
+            UNUserNotificationCenter.current().removeDeliveredNotifications(
+                withIdentifiers: ["call_\(callId)"]
+            )
+
+        case "DECLINE_CALL", UNNotificationDefaultActionIdentifier:
+            if response.notification.request.content.categoryIdentifier == "INCOMING_CALL" {
+                _notificationChannel?.invokeMethod("onCallAction", arguments: [
+                    "action": "decline",
+                    "callId": callId
+                ])
+                UNUserNotificationCenter.current().removeDeliveredNotifications(
+                    withIdentifiers: ["call_\(callId)"]
+                )
+            }
+
+        default:
+            break
         }
         completionHandler()
     }

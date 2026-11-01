@@ -6,6 +6,7 @@ enum Capability {
   notifications,
   screenShare,
   remoteControl,
+  calls,
 }
 
 enum RelayKind {
@@ -16,6 +17,7 @@ enum RelayKind {
   screen,
   remoteControl,
   presence,
+  call,
 }
 
 class PairedDevice {
@@ -150,4 +152,38 @@ class RemoteControlCommand {
         'back' || 'home' || 'stop' => true,
         _ => false,
       };
+}
+
+class PhoneCallEvent {
+  const PhoneCallEvent({
+    required this.callId,
+    required this.number,
+    this.callerName,
+    required this.state,
+    this.timestamp,
+  });
+
+  final String callId;
+  final String number;
+  final String? callerName;
+  final String state; // 'ringing', 'offhook', 'idle', 'missed'
+  final DateTime? timestamp;
+
+  Map<String, Object?> toJson() => {
+        'callId': callId,
+        'number': number,
+        if (callerName != null) 'callerName': callerName,
+        'state': state,
+        if (timestamp != null) 'timestamp': timestamp!.toUtc().toIso8601String(),
+      };
+
+  factory PhoneCallEvent.fromJson(Map<String, dynamic> json) => PhoneCallEvent(
+        callId: json['callId'] as String? ?? '',
+        number: json['number'] as String? ?? 'Unknown',
+        callerName: json['callerName'] as String?,
+        state: json['state'] as String? ?? 'idle',
+        timestamp: json['timestamp'] != null
+            ? DateTime.tryParse(json['timestamp'] as String)
+            : null,
+      );
 }

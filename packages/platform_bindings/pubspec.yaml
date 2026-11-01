@@ -10,3 +10,5 @@ dependencies:
     sdk: flutter
   shared_types:
     path: ../shared_types
+  continuity_core:
+    path: ../continuity_core

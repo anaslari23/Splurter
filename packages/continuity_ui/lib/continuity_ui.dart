@@ -6,3 +6,5 @@ export 'src/widgets/transfer_screen.dart';
 export 'src/widgets/sign_in_screen.dart';
 export 'src/widgets/phone_mockup_widget.dart';
 export 'src/widgets/android_permission_banner.dart';
+export 'src/widgets/incoming_call_banner.dart';
+export 'src/widgets/continuity_pairing_card.dart';

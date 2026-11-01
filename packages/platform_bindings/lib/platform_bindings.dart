@@ -8,3 +8,4 @@ export 'src/foreground_service_binding.dart';
 export 'src/window_binding.dart';
 export 'src/scrcpy_binding.dart';
 export 'src/android_permissions.dart';
+export 'src/call_binding.dart';

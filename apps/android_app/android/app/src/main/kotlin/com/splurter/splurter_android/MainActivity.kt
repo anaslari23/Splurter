@@ -163,7 +163,21 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "dismiss" -> {
+                        val id = call.argument<String>("id")
+                        if (id != null) {
+                            NotificationListener.instance?.dismiss(id)
+                        }
                         result.success(null)
+                    }
+                    "reply" -> {
+                        val id = call.argument<String>("id")
+                        val text = call.argument<String>("text")
+                        if (id != null && text != null) {
+                            val ok = NotificationListener.instance?.reply(id, text) ?: false
+                            result.success(ok)
+                        } else {
+                            result.success(false)
+                        }
                     }
                     "syncActiveNotifications" -> {
                         NotificationListener.instance?.syncActiveNotifications()
@@ -172,6 +186,22 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        val callChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "splurter/calls")
+        PhoneCallReceiver.callChannel = callChannel
+        callChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "answerCall" -> {
+                    PhoneCallReceiver.answerCall(this)
+                    result.success(null)
+                }
+                "endCall" -> {
+                    PhoneCallReceiver.endCall(this)
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         handleShareIntent(intent)
     }
@@ -190,6 +220,7 @@ class MainActivity : FlutterActivity() {
         app.discoveryHandler.dispose()
         app.networkHandler.dispose()
         app.fileHandler.dispose()
+        PhoneCallReceiver.callChannel = null
         shareChannel?.setMethodCallHandler(null)
         shareChannel = null
     }

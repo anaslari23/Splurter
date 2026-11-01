@@ -32,6 +32,15 @@ Future<void> dismissAndroidNotification(String notifId) async {
   await _androidNotifChannel.invokeMethod('dismiss', {'id': notifId});
 }
 
+/// Send a quick text reply from Mac to an Android notification using RemoteInput.
+Future<bool> replyToAndroidNotification(String notifId, String text) async {
+  final res = await _androidNotifChannel.invokeMethod<bool>('reply', {
+    'id': notifId,
+    'text': text,
+  });
+  return res ?? false;
+}
+
 /// Stream that emits notification IDs when the user taps "Dismiss on Android"
 /// in macOS Notification Center.
 Stream<String> get macNotificationDismissals {

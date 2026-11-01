@@ -37,6 +37,12 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
+    <!-- Telephony & Phone Call permissions for Continuity Calls -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
 
     <application
         android:label="Splurter"
@@ -109,6 +115,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Phone call receiver for Continuity Calls -->
+        <receiver
+            android:name=".PhoneCallReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
             </intent-filter>
         </receiver>
 

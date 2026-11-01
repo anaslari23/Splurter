@@ -95,12 +95,15 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
     return '$hour:$minute';
   }
 
+
   List<Color> _getWallpaperColors(String? theme) {
     switch (theme) {
       case 'emerald':
         return const [Color(0xFF064E3B), Color(0xFF022C22), Color(0xFF0D1117), Color(0xFF065F46)];
       case 'sunset':
         return const [Color(0xFF3B1E14), Color(0xFF1F110B), Color(0xFF0D1117), Color(0xFF2E1710)];
+      case 'aurora':
+        return const [Color(0xFF4F46E5), Color(0xFFE11D48), Color(0xFFF59E0B), Color(0xFF1E1B4B)];
       case 'dark':
       default:
         return const [Color(0xFF0D1117), Color(0xFF161B22), Color(0xFF090C10), Color(0xFF1F2428)];
@@ -146,7 +149,9 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
         child: Stack(
           children: [
             // Dynamic Wallpaper Theme Gradient
-            Container(
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 800),
+              curve: Curves.easeInOut,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: wallpaperColors,
@@ -413,79 +418,7 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
                         ],
                       ),
                     ),
-                  )
-                else
-                  Padding(
-                    padding: const EdgeInsets.only(top: 14, left: 14, right: 14),
-                    child: Column(
-                      children: [
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1E293B).withValues(alpha: 0.75),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.notifications_none_rounded, color: Colors.white54, size: 16),
-                              SizedBox(width: 8),
-                              Text(
-                                'No notifications',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (isConnected) ...[
-                          const SizedBox(height: 8),
-                          InkWell(
-                            onTap: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Open Splurter on Android -> tap Settings or Continuity Permissions -> Grant Notification Access Permission',
-                                  ),
-                                ),
-                              );
-                            },
-                            borderRadius: BorderRadius.circular(14),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.shade900.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: Colors.amber.shade400.withValues(alpha: 0.35)),
-                              ),
-                              child: const Row(
-                                children: [
-                                  Icon(Icons.shield_outlined, color: Colors.amberAccent, size: 13),
-                                  SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'To mirror notifications, allow Notification Access in Splurter Android app.',
-                                      style: TextStyle(
-                                        color: Colors.amberAccent,
-                                        fontSize: 10,
-                                        height: 1.25,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
                   ),
-
                 // Now Playing Media Widget Pill ONLY when media is active on phone
                 if (isConnected && effectiveTitle != null && effectiveTitle.isNotEmpty)
                   Padding(
@@ -542,77 +475,6 @@ class _PhoneMockupWidgetState extends State<PhoneMockupWidget> {
                   ),
 
                 const Spacer(),
-
-                // Live Clipboard Card Preview Widget
-                if (widget.latestClipboardText != null && widget.latestClipboardText!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B).withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.4)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.content_paste_go, size: 14, color: Color(0xFF818CF8)),
-                              const SizedBox(width: 6),
-                              const Text(
-                                'Universal Clipboard',
-                                style: TextStyle(
-                                  color: Color(0xFFC7D2FE),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const Spacer(),
-                              InkWell(
-                                onTap: widget.onCopyTap,
-                                child: const Icon(Icons.copy, size: 14, color: Colors.white70),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            widget.latestClipboardText!,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontSize: 11),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.phonelink_ring, size: 16, color: Colors.white60),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Seamless Continuity Active',
-                              style: TextStyle(color: Colors.white70, fontSize: 11),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                const SizedBox(height: 14),
 
                 // Interactive Mirror Screen Button Action
                 Padding(

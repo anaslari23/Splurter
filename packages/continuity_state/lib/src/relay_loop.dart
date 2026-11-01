@@ -26,6 +26,7 @@ class RelayLoop {
   // Callbacks set by feature providers / main.dart
   void Function(String text)? onClipboardReceived;
   void Function(Map<String, dynamic> notif)? onNotificationReceived;
+  void Function(PhoneCallEvent call)? onCallReceived;
 
   void start({required String uid, required String deviceId}) {
     if (_uid == uid && _sub != null) return;
@@ -75,6 +76,23 @@ class RelayLoop {
                 );
               }
               onNotificationReceived?.call(payload);
+            } else if (kind == RelayKind.call) {
+              final call = PhoneCallEvent.fromJson(payload);
+              onCallReceived?.call(call);
+            } else if (kind == RelayKind.remoteControl) {
+              if (defaultTargetPlatform == TargetPlatform.android) {
+                final notifId = payload['notifId'] as String?;
+                if (notifId != null && payload['action'] == 'dismiss') {
+                  dismissAndroidNotification(notifId);
+                } else if (notifId != null && payload['action'] == 'reply') {
+                  final text = payload['text'] as String? ?? '';
+                  replyToAndroidNotification(notifId, text);
+                } else if (payload['action'] == 'answerCall') {
+                  answerCall();
+                } else if (payload['action'] == 'endCall') {
+                  endCall();
+                }
+              }
             }
           } catch (_) {}
         });
@@ -142,11 +160,22 @@ class RelayLoop {
           }
           onNotificationReceived?.call(payload);
 
+        case RelayKind.call:
+          final call = PhoneCallEvent.fromJson(payload);
+          onCallReceived?.call(call);
+
         case RelayKind.remoteControl:
           if (defaultTargetPlatform == TargetPlatform.android) {
             final notifId = payload['notifId'] as String?;
             if (notifId != null && payload['action'] == 'dismiss') {
               dismissAndroidNotification(notifId);
+            } else if (notifId != null && payload['action'] == 'reply') {
+              final text = payload['text'] as String? ?? '';
+              replyToAndroidNotification(notifId, text);
+            } else if (payload['action'] == 'answerCall') {
+              answerCall();
+            } else if (payload['action'] == 'endCall') {
+              endCall();
             }
           }
 
@@ -156,6 +185,72 @@ class RelayLoop {
 
       change.doc.reference.delete().ignore();
     }
+  }
+
+  Future<void> answerPhoneCall({
+    required String uid,
+    required String senderId,
+    required String recipientId,
+  }) async {
+    await send(
+      uid: uid,
+      senderId: senderId,
+      recipientId: recipientId,
+      kind: RelayKind.remoteControl,
+      payload: {'action': 'answerCall'},
+    );
+  }
+
+  Future<void> endPhoneCall({
+    required String uid,
+    required String senderId,
+    required String recipientId,
+  }) async {
+    await send(
+      uid: uid,
+      senderId: senderId,
+      recipientId: recipientId,
+      kind: RelayKind.remoteControl,
+      payload: {'action': 'endCall'},
+    );
+  }
+
+  Future<void> replyToNotification({
+    required String uid,
+    required String senderId,
+    required String recipientId,
+    required String notifId,
+    required String text,
+  }) async {
+    await send(
+      uid: uid,
+      senderId: senderId,
+      recipientId: recipientId,
+      kind: RelayKind.remoteControl,
+      payload: {
+        'action': 'reply',
+        'notifId': notifId,
+        'text': text,
+      },
+    );
+  }
+
+  Future<void> dismissNotification({
+    required String uid,
+    required String senderId,
+    required String recipientId,
+    required String notifId,
+  }) async {
+    await send(
+      uid: uid,
+      senderId: senderId,
+      recipientId: recipientId,
+      kind: RelayKind.remoteControl,
+      payload: {
+        'action': 'dismiss',
+        'notifId': notifId,
+      },
+    );
   }
 
   Future<void> send({

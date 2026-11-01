@@ -3,8 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter/services.dart';
 import 'package:continuity_state/continuity_state.dart';
-import 'package:platform_bindings/platform_bindings.dart';
-
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -12,7 +10,6 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final clipSync = ref.watch(clipboardSyncEnabledProvider);
     final notifSync = ref.watch(notificationsEnabledProvider);
 
     return Scaffold(
@@ -34,20 +31,6 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           _SettingsSection(
-            title: 'Clipboard',
-            children: [
-              SwitchListTile(
-                value: clipSync,
-                onChanged: (v) {
-                  ref.read(clipboardSyncEnabledProvider.notifier).state = v;
-                },
-                title: const Text('Auto-sync Clipboard'),
-                subtitle: const Text('Automatically share clipboard with Mac'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _SettingsSection(
             title: 'Background Sync & Permissions',
             children: [
               SwitchListTile(
@@ -60,39 +43,6 @@ class SettingsScreen extends ConsumerWidget {
                 },
                 title: const Text('Notification Mirroring Toggle'),
                 subtitle: const Text('Relay Android notifications to Mac desktop'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.notifications_active_outlined, color: Colors.amber),
-                title: const Text('Grant Notification Access Permission'),
-                subtitle: const Text('Directly open Android Settings to enable Notification Mirroring'),
-                trailing: const Icon(Icons.open_in_new),
-                onTap: () async {
-                  await openNotificationListenerSettings();
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Opening Notification Access Settings...')),
-                    );
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.keyboard_outlined, color: Colors.amber),
-                title: const Text('Grant Keyboard & Clipboard Permission'),
-                subtitle: const Text('Directly open Android Settings to enable Splurter Keyboard Service'),
-                trailing: const Icon(Icons.open_in_new),
-                onTap: () async {
-                  await openInputMethodSettings();
-                  await showInputMethodPicker();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.battery_charging_full_outlined, color: Colors.amber),
-                title: const Text('Grant Unrestricted Battery Permission'),
-                subtitle: const Text('Directly open Android Settings to prevent background sync from sleeping'),
-                trailing: const Icon(Icons.open_in_new),
-                onTap: () async {
-                  await requestBatteryExemption();
-                },
               ),
             ],
           ),

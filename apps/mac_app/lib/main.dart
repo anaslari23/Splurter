@@ -1,5 +1,6 @@
-import 'dart:math' as math;
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -39,25 +40,36 @@ void main() async {
 
 class PhoneNotificationData {
   const PhoneNotificationData({
+    this.id,
     required this.appName,
     required this.title,
     required this.text,
     required this.time,
+    this.canReply = false,
   });
+  final String? id;
   final String appName;
   final String title;
   final String text;
   final String time;
+  final bool canReply;
 }
 
 final latestPhoneNotificationProvider = StateProvider<PhoneNotificationData?>((ref) {
   return null;
 });
 
+/// Tracks *currently active* live notifications (session-only, cleared on disconnect).
+/// We use a LinkedHashMap-style approach: keyed by notification ID so updates
+/// replace duplicates in-place. The list order reflects arrival order.
 final notificationHistoryProvider = StateProvider<List<PhoneNotificationData>>((ref) => []);
 final isHistoryDrawerOpenProvider = StateProvider<bool>((ref) => false);
 final syncActivityProvider = StateProvider<String?>((ref) => null);
 final isSidebarCollapsedProvider = StateProvider<bool>((ref) => false);
+
+/// Timestamp captured at boot — any Firestore signal older than this is historical
+/// and must be ignored so we never replay past notifications on app restart.
+DateTime _startedAt = DateTime.now();
 
 bool _isIgnoredSystemNotif(String appName, String title) {
   final lowerApp = appName.toLowerCase();
@@ -74,6 +86,17 @@ bool _isIgnoredSystemNotif(String appName, String title) {
   return false;
 }
 
+void _addNotification(WidgetRef ref, PhoneNotificationData notif) {
+  final current = ref.read(notificationHistoryProvider);
+  // Deduplicate: if same ID already exists, replace it in-place
+  if (notif.id != null && current.any((n) => n.id == notif.id)) {
+    ref.read(notificationHistoryProvider.notifier).state =
+        current.map((n) => n.id == notif.id ? notif : n).toList();
+  } else {
+    ref.read(notificationHistoryProvider.notifier).state = [notif, ...current];
+  }
+}
+
 void _triggerSyncToast(WidgetRef ref, String msg) {
   ref.read(syncActivityProvider.notifier).state = msg;
   Future.delayed(const Duration(seconds: 4), () {
@@ -81,6 +104,35 @@ void _triggerSyncToast(WidgetRef ref, String msg) {
       ref.read(syncActivityProvider.notifier).state = null;
     }
   });
+}
+
+/// Last device ID we pushed to the Swift menu bar, to avoid redundant calls.
+String? _lastPushedDeviceId;
+
+/// Pushes the active device's IP + name to Swift (for the menu-bar Mirror button)
+/// and clears stale notifications when the device disconnects.
+void _syncDeviceToMenuBar(WidgetRef ref, Device? activeDevice) {
+  if (activeDevice?.id == _lastPushedDeviceId) return; // nothing changed
+  _lastPushedDeviceId = activeDevice?.id;
+
+  if (activeDevice != null && activeDevice.address.isNotEmpty) {
+    // Device connected — tell Swift so the Mirror menu item can work instantly.
+    final ch = MethodChannel('splurter/network');
+    ch.invokeMethod('setPairedDevice', {
+      'ipAddress': activeDevice.address,
+      'deviceName': activeDevice.name,
+    }).ignore();
+  } else {
+    // Device disconnected — clear its IP from Swift and wipe stale notifications.
+    final ch = MethodChannel('splurter/network');
+    ch.invokeMethod('setPairedDevice', {
+      'ipAddress': '',
+      'deviceName': '',
+    }).ignore();
+    // Clear notifications so we start fresh when paired again.
+    ref.read(notificationHistoryProvider.notifier).state = [];
+    ref.read(latestPhoneNotificationProvider.notifier).state = null;
+  }
 }
 
 class SplurterMacApp extends ConsumerStatefulWidget {
@@ -101,6 +153,10 @@ class _SplurterMacAppState extends ConsumerState<SplurterMacApp> {
   }
 
   Future<void> _bootRelay() async {
+    // Capture boot time — Firestore signals older than this are historical
+    // (the listener re-delivers them as 'added' on first attach) and must be ignored.
+    _startedAt = DateTime.now();
+
     try {
       if (FirebaseAuth.instance.currentUser == null) {
         await FirebaseAuth.instance.signInAnonymously();
@@ -164,57 +220,109 @@ class _SplurterMacAppState extends ConsumerState<SplurterMacApp> {
     });
 
     relay.onNotificationReceived = (payload) {
+      final action = payload['action'] as String? ?? 'post';
+      final id = payload['id'] as String?;
+
+      // Guard: ignore signals that were created before we booted (history replay)
+      final createdAtMs = payload['createdAt'] as int?;
+      if (createdAtMs != null) {
+        final createdAt = DateTime.fromMillisecondsSinceEpoch(createdAtMs);
+        if (createdAt.isBefore(_startedAt)) return;
+      }
+
+      if (action == 'remove') {
+        if (id != null) {
+          final history = ref.read(notificationHistoryProvider);
+          ref.read(notificationHistoryProvider.notifier).state = history.where((n) => n.id != id).toList();
+          final current = ref.read(latestPhoneNotificationProvider);
+          if (current?.id == id) {
+            ref.read(latestPhoneNotificationProvider.notifier).state = null;
+          }
+        }
+        return;
+      }
+
       final appName = payload['appName'] as String? ?? payload['packageName'] as String? ?? 'Android';
       final title = payload['title'] as String? ?? 'Notification';
       final text = payload['text'] as String? ?? '';
+      final canReply = payload['canReply'] as bool? ?? false;
       if (_isIgnoredSystemNotif(appName, title)) return;
       final notif = PhoneNotificationData(
+        id: id,
         appName: appName,
         title: title,
         text: text,
         time: 'now',
+        canReply: canReply,
       );
       ref.read(latestPhoneNotificationProvider.notifier).state = notif;
-      ref.read(notificationHistoryProvider.notifier).state = [
-        notif,
-        ...ref.read(notificationHistoryProvider),
-      ];
-      _triggerSyncToast(ref, 'Notification mirrored ($appName)');
+      _addNotification(ref, notif);
+      _triggerSyncToast(ref, 'Notification from $appName');
     };
 
-    for (final targetUid in {kMacHostUid, 'mac-channel-1'}) {
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(targetUid)
-          .collection('signals')
-          .snapshots()
-          .listen((snap) {
-        for (final doc in snap.docChanges) {
-          if (doc.type == DocumentChangeType.added) {
-            final data = doc.doc.data();
-            if (data != null && data['kind'] == 'notification') {
-              final payload = data['payload'] as Map<String, dynamic>? ?? {};
-              final appName = payload['appName'] as String? ?? payload['packageName'] as String? ?? 'Android';
-              final title = payload['title'] as String? ?? 'Notification';
-              final text = payload['text'] as String? ?? '';
-              if (_isIgnoredSystemNotif(appName, title)) return;
-              final notif = PhoneNotificationData(
-                appName: appName,
-                title: title,
-                text: text,
-                time: 'now',
-              );
-              ref.read(latestPhoneNotificationProvider.notifier).state = notif;
-              ref.read(notificationHistoryProvider.notifier).state = [
-                notif,
-                ...ref.read(notificationHistoryProvider),
-              ];
-              _triggerSyncToast(ref, 'Cloud notification mirrored ($appName)');
-            }
+    // NOTE: The relay already listens to Firestore signals internally.
+    // We do NOT attach a second manual Firestore listener here — that caused
+    // every notification to be processed twice and history to be replayed on startup.
+
+    // ── Incoming call: show native macOS notification + in-app banner ──
+    const _notifChannel = MethodChannel('splurter/native_notifications');
+    _notifChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onCallAction') {
+        final args = call.arguments as Map?;
+        final action = args?['action'] as String? ?? '';
+        final callId = args?['callId'] as String? ?? '';
+        final currentCall = ref.read(activeCallProvider);
+        final hostUid = FirebaseAuth.instance.currentUser?.uid ?? kMacHostUid;
+        final pairingState = ref.read(pairingStateProvider);
+        final targetId = pairingState is PairingConnected ? pairingState.device.id : 'android-device-id';
+
+        if (action == 'answer') {
+          await ref.read(relayLoopProvider).answerPhoneCall(
+            uid: hostUid, senderId: kMacDeviceId, recipientId: targetId,
+          );
+          if (currentCall != null) {
+            ref.read(activeCallProvider.notifier).state = PhoneCallEvent(
+              callId: currentCall.callId,
+              number: currentCall.number,
+              callerName: currentCall.callerName,
+              state: 'offhook',
+              timestamp: DateTime.now(),
+            );
           }
+          _triggerSyncToast(ref, 'Call answered on Android');
+        } else if (action == 'decline') {
+          await ref.read(relayLoopProvider).endPhoneCall(
+            uid: hostUid, senderId: kMacDeviceId, recipientId: targetId,
+          );
+          ref.read(activeCallProvider.notifier).state = null;
+          _triggerSyncToast(ref, 'Call declined');
         }
-      });
-    }
+      }
+    });
+
+    relay.onCallReceived = (call) async {
+      if (call.state == 'idle') {
+        // Call ended — dismiss native notification and in-app banner
+        ref.read(activeCallProvider.notifier).state = null;
+        try {
+          await _notifChannel.invokeMethod('dismissCall', {'callId': call.callId});
+        } catch (_) {}
+      } else if (call.state == 'ringing') {
+        // New incoming call — update in-app banner AND fire native call notification
+        ref.read(activeCallProvider.notifier).state = call;
+        try {
+          await _notifChannel.invokeMethod('showCall', {
+            'callId': call.callId,
+            'callerName': call.callerName,
+            'number': call.number,
+          });
+        } catch (_) {}
+      } else {
+        // offhook / other states — update banner only
+        ref.read(activeCallProvider.notifier).state = call;
+      }
+    };
+
     _triggerSyncToast(ref, 'Connected to local Wi-Fi network');
   }
 
@@ -239,20 +347,19 @@ class DashboardShell extends ConsumerStatefulWidget {
 }
 
 class _DashboardShellState extends ConsumerState<DashboardShell> {
-  int _selectedTabIndex = 0;
+
 
   @override
   Widget build(BuildContext context) {
     final isCompact = ref.watch(isCompactModeProvider);
-    final isSidebarCollapsed = ref.watch(isSidebarCollapsedProvider);
     final notifHistory = ref.watch(notificationHistoryProvider);
-    final isHistoryDrawerOpen = ref.watch(isHistoryDrawerOpenProvider);
     final syncActivity = ref.watch(syncActivityProvider);
     final pairingState = ref.watch(pairingStateProvider);
     final Device? pairedDevice = pairingState is PairingConnected ? pairingState.device : null;
     final history = ref.watch(clipHistoryProvider);
     final latestClip = history.isNotEmpty ? history.first.content : null;
     final latestNotif = ref.watch(latestPhoneNotificationProvider);
+    final activeCall = ref.watch(activeCallProvider);
 
     final hostUid = FirebaseAuth.instance.currentUser?.uid ?? kMacHostUid;
     final remoteDevicesAsync = ref.watch(remoteDevicesStreamProvider(hostUid));
@@ -294,6 +401,10 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
     final activeDevice = pairedDevice == null
         ? null
         : (hasRemoteDevice ? secondaryDevice.copyWith(isPaired: true) : pairedDevice);
+
+    // When a device connects, push its IP to Swift so the menu-bar Mirror button works.
+    // When it disconnects, clear stale notifications from the previous session.
+    _syncDeviceToMenuBar(ref, activeDevice);
 
     final invitationCode = PairingInvitation(
       version: RelayEnvelope.currentVersion,
@@ -388,309 +499,135 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
       );
     }
 
-    // 2. Full Glassmorphic macOS Dashboard Mode
+    // 2. Minimal single-column window — no sidebar, no feature cards
     return Scaffold(
       backgroundColor: const Color(0xFF0B0F17),
-      body: Row(
+      body: Column(
         children: [
-          // Left Sidebar Pane with Interactive Phone Frame (AirSync Style)
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            width: isSidebarCollapsed ? 0 : 270,
-            clipBehavior: Clip.hardEdge,
-            decoration: BoxDecoration(
-              color: const Color(0xFF0F172A).withValues(alpha: 0.95),
-              border: const Border(
-                right: BorderSide(color: Color(0xFF1E293B), width: 1),
-              ),
+          const SizedBox(height: 28), // macOS traffic lights
+
+          // ── Slim top bar ──────────────────────────────────────────────
+          Container(
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFF1E293B), width: 1)),
             ),
-            child: Column(
+            child: Row(
               children: [
-                const SizedBox(height: 28), // Space for window control traffic lights
-
-                // Header Title & Floating Mode Toggle
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.phonelink_setup_rounded, color: Color(0xFF818CF8), size: 20),
-                      ),
-                      const SizedBox(width: 10),
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Splurter',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            'macOS Continuity',
-                            style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.picture_in_picture_alt, size: 18, color: Color(0xFF818CF8)),
-                        tooltip: 'Pin Floating Phone Widget',
-                        onPressed: () {
-                          ref.read(isCompactModeProvider.notifier).state = true;
-                          setCompactWindowMode(true);
-                        },
-                      ),
-                    ],
-                  ),
+                // App wordmark
+                const Icon(Icons.phonelink_setup_rounded, color: Color(0xFF818CF8), size: 16),
+                const SizedBox(width: 8),
+                const Text(
+                  'Splurter',
+                  style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
                 ),
-
-                const SizedBox(height: 12),
-
-                // Physical Phone Frame Mockup Component
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
+                const SizedBox(width: 12),
+                // Connected device chip
+                if (activeDevice != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        PhoneMockupWidget(
-                          device: activeDevice,
-                          latestClipboardText: latestClip,
-                          notificationAppName: latestNotif?.appName,
-                          notificationTitle: latestNotif?.title,
-                          notificationText: latestNotif?.text,
-                          notificationTime: latestNotif?.time,
-                          onNotificationDismiss: () {
-                            ref.read(latestPhoneNotificationProvider.notifier).state = null;
-                          },
-                          width: 245,
-                          height: 485,
-                          onMirrorTap: () async {
-                            if (activeDevice != null && activeDevice.address.isNotEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Launching screen mirror for ${activeDevice.name}...')),
-                              );
-                              await launchScreenMirroring(
-                                ipAddress: activeDevice.address,
-                                deviceName: activeDevice.name,
-                              );
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('No active device connected for screen mirroring.')),
-                              );
-                            }
-                          },
-                          onCopyTap: () {
-                            if (latestClip != null) {
-                              writeClipboard(latestClip);
-                            }
-                          },
+                        const Icon(Icons.circle, color: Color(0xFF34D399), size: 6),
+                        const SizedBox(width: 5),
+                        Text(
+                          activeDevice.name,
+                          style: const TextStyle(color: Color(0xFF34D399), fontSize: 11, fontWeight: FontWeight.w600),
                         ),
-                        const SizedBox(height: 14),
-
-                        // Action Buttons Bar under Phone Frame
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () {
-                                    ref.read(isCompactModeProvider.notifier).state = true;
-                                    setCompactWindowMode(true);
-                                  },
-                                  icon: const Icon(Icons.aspect_ratio, size: 14),
-                                  label: const Text('Float Phone', style: TextStyle(fontSize: 11)),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: const Color(0xFFC7D2FE),
-                                    side: const BorderSide(color: Color(0xFF4F46E5)),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
                       ],
                     ),
                   ),
-                ),
+                // Sync toast
+                if (syncActivity != null) ...[
+                  const SizedBox(width: 10),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.sync_rounded, color: Color(0xFF34D399), size: 12),
+                      const SizedBox(width: 4),
+                      Text(syncActivity, style: const TextStyle(color: Color(0xFF34D399), fontSize: 11)),
+                    ],
+                  ),
+                ],
+                const Spacer(),
+                // Notification count badge
+                if (notifHistory.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.notifications_rounded, color: Color(0xFF818CF8), size: 12),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${notifHistory.length}',
+                          style: const TextStyle(color: Color(0xFF818CF8), fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
 
-          // Right Dashboard Content Area
+          // ── Body ──────────────────────────────────────────────────────
           Expanded(
-            child: Column(
+            child: Stack(
               children: [
-                const SizedBox(height: 28), // Titlebar padding
-
-                // Top Navigation Bar
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: const BoxDecoration(
-                    border: Border(bottom: BorderSide(color: Color(0xFF1E293B), width: 1)),
-                  ),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minWidth: math.max(
-                          0.0,
-                          MediaQuery.sizeOf(context).width - (isSidebarCollapsed ? 0 : 270) - 32,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              IconButton(
-                                icon: Icon(
-                                  isSidebarCollapsed ? Icons.menu_rounded : Icons.menu_open_rounded,
-                                  color: Colors.white70,
-                                  size: 18,
-                                ),
-                                tooltip: isSidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar',
-                                onPressed: () => ref.read(isSidebarCollapsedProvider.notifier).state = !isSidebarCollapsed,
-                              ),
-                              const SizedBox(width: 8),
-                              _NavTabButton(
-                                icon: Icons.devices_rounded,
-                                label: 'Devices',
-                                isSelected: _selectedTabIndex == 0,
-                                onTap: () => setState(() => _selectedTabIndex = 0),
-                              ),
-                              const SizedBox(width: 6),
-                              _NavTabButton(
-                                icon: Icons.settings_rounded,
-                                label: 'Settings',
-                                isSelected: _selectedTabIndex == 1,
-                                onTap: () => setState(() => _selectedTabIndex = 1),
-                              ),
-                              if (activeDevice != null) ...[
-                                const SizedBox(width: 12),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green.withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.check_circle, color: Colors.greenAccent, size: 12),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        activeDevice.name,
-                                        style: const TextStyle(
-                                          color: Colors.greenAccent,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              if (syncActivity != null) ...[
-                                const SizedBox(width: 16),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.5)),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.sync_rounded, color: Color(0xFF34D399), size: 14),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        syncActivity,
-                                        style: const TextStyle(
-                                          color: Color(0xFF34D399),
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              IconButton(
-                                icon: Badge(
-                                  isLabelVisible: notifHistory.isNotEmpty,
-                                  label: Text('${notifHistory.length}', style: const TextStyle(fontSize: 10)),
-                                  child: Icon(
-                                    Icons.notifications_rounded,
-                                    color: isHistoryDrawerOpen ? const Color(0xFF818CF8) : Colors.white70,
-                                    size: 18,
-                                  ),
-                                ),
-                                tooltip: 'Notification History',
-                                onPressed: () => ref.read(isHistoryDrawerOpenProvider.notifier).state = !isHistoryDrawerOpen,
-                              ),
-                              const SizedBox(width: 8),
-                              IconButton(
-                                icon: const Icon(Icons.aspect_ratio_rounded, color: Colors.white70, size: 18),
-                                tooltip: 'Float Compact Mode',
-                                onPressed: () => ref.read(isCompactModeProvider.notifier).state = true,
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                _DevicesView(
+                  activeDevice: activeDevice,
+                  invitationCode: invitationCode,
+                  discoveredDevices: remoteDevices,
+                  notifHistory: notifHistory,
+                ),
+                // Incoming call banner floats over content
+                if (activeCall != null)
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: IncomingCallBanner(
+                      call: activeCall,
+                      onAnswer: () async {
+                        final hostUid = FirebaseAuth.instance.currentUser?.uid ?? kMacHostUid;
+                        final targetId = activeDevice?.id ?? 'android-device-id';
+                        await ref.read(relayLoopProvider).answerPhoneCall(
+                              uid: hostUid,
+                              senderId: kMacDeviceId,
+                              recipientId: targetId,
+                            );
+                        ref.read(activeCallProvider.notifier).state = PhoneCallEvent(
+                          callId: activeCall.callId,
+                          number: activeCall.number,
+                          callerName: activeCall.callerName,
+                          state: 'offhook',
+                          timestamp: DateTime.now(),
+                        );
+                        _triggerSyncToast(ref, 'Call answered on Android');
+                      },
+                      onDecline: () async {
+                        final hostUid = FirebaseAuth.instance.currentUser?.uid ?? kMacHostUid;
+                        final targetId = activeDevice?.id ?? 'android-device-id';
+                        await ref.read(relayLoopProvider).endPhoneCall(
+                              uid: hostUid,
+                              senderId: kMacDeviceId,
+                              recipientId: targetId,
+                            );
+                        ref.read(activeCallProvider.notifier).state = null;
+                        _triggerSyncToast(ref, 'Call declined');
+                      },
                     ),
                   ),
-                ),
-
-                // Dynamic Body View
-                Expanded(
-                  child: Stack(
-                    children: [
-                      IndexedStack(
-                        index: _selectedTabIndex,
-                        children: [
-                          _DevicesView(
-                            activeDevice: activeDevice,
-                            invitationCode: invitationCode,
-                            discoveredDevices: remoteDevices,
-                          ),
-                          const _SettingsView(),
-                        ],
-                      ),
-                      if (isHistoryDrawerOpen)
-                        Positioned(
-                          top: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: _NotificationHistoryDrawer(
-                            history: notifHistory,
-                            onClose: () => ref.read(isHistoryDrawerOpenProvider.notifier).state = false,
-                            onClear: () => ref.read(notificationHistoryProvider.notifier).state = [],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
               ],
             ),
           ),
@@ -755,109 +692,247 @@ class _DevicesView extends ConsumerWidget {
     required this.activeDevice,
     required this.invitationCode,
     required this.discoveredDevices,
+    required this.notifHistory,
   });
 
   final Device? activeDevice;
   final String invitationCode;
   final List<Device> discoveredDevices;
+  final List<PhoneNotificationData> notifHistory;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // ── No device: show pairing QR ────────────────────────────────────
     if (activeDevice == null) {
-      return PairingScreen(
-        pairingCode: invitationCode,
-        discoveredDevices: discoveredDevices,
-        onDeviceSelected: (dev) => ref.read(pairingStateProvider.notifier).complete(dev),
+      return Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+          child: ContinuityPairingCard(
+            pairingCode: invitationCode,
+            onManualCodeSubmitted: (code) async {
+              try {
+                final invitation = PairingInvitation.fromCode(code);
+                final device = Device(
+                  id: invitation.device.id,
+                  name: invitation.device.name,
+                  platform: invitation.device.platform,
+                  address: invitation.hostUid,
+                  port: 9876,
+                  version: '1.0',
+                  capabilities: invitation.device.capabilities.map((c) => c.name).toList(),
+                  isPaired: true,
+                );
+                ref.read(pairingStateProvider.notifier).complete(device);
+              } catch (_) {}
+            },
+          ),
+        ),
       );
     }
 
+    // ── Device connected: compact status + live notifications ─────────
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       children: [
+        // ── Compact device row ────────────────────────────────────────
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: Colors.green.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF1E293B)),
           ),
           child: Row(
             children: [
-              const Icon(Icons.check_circle, color: Colors.greenAccent, size: 28),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF4F46E5)]),
+                ),
+                child: const Icon(Icons.phone_android_rounded, color: Colors.white, size: 18),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Connected to ${activeDevice!.name}',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.greenAccent,
-                      ),
+                      activeDevice!.name,
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
-                      'Always-On Continuity Active • Universal Clipboard',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'Copy anywhere on this Mac to paste on your Android, and vice versa—completely in the background.',
-                      style: TextStyle(fontSize: 12, color: Colors.white70),
+                    Wrap(
+                      spacing: 6,
+                      children: [
+                        _MetricBadge(
+                          icon: activeDevice!.isCharging ? Icons.battery_charging_full_rounded : Icons.battery_std_rounded,
+                          label: '${activeDevice!.batteryLevel}%',
+                          color: activeDevice!.isCharging ? const Color(0xFF34D399) : const Color(0xFF818CF8),
+                        ),
+                        _MetricBadge(
+                          icon: Icons.cell_tower_rounded,
+                          label: activeDevice!.carrier,
+                          color: const Color(0xFFA78BFA),
+                        ),
+                        _MetricBadge(
+                          icon: Icons.wifi_tethering_rounded,
+                          label: activeDevice!.address.isNotEmpty && activeDevice!.address != 'relay'
+                              ? 'LAN Direct'
+                              : 'Cloud Relay',
+                          color: const Color(0xFF38BDF8),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              ElevatedButton.icon(
+              // Unpair — only action needed in window; Mirror is in menu bar
+              TextButton.icon(
                 onPressed: () async {
                   ref.read(relayLoopProvider).stop();
                   final hostUid = FirebaseAuth.instance.currentUser?.uid ?? kMacHostUid;
                   await ref.read(pairingStateProvider.notifier).unpair(uid: hostUid, deviceId: kMacDeviceId);
                 },
-                icon: const Icon(Icons.link_off, size: 16),
-                label: const Text('Unpair Device'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent.withValues(alpha: 0.2),
-                  foregroundColor: Colors.redAccent,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
+                icon: const Icon(Icons.link_off_rounded, size: 14, color: Color(0xFFF87171)),
+                label: const Text('Unpair', style: TextStyle(color: Color(0xFFF87171), fontSize: 12)),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 24),
-        DeviceCard(device: activeDevice!),
+
+        const SizedBox(height: 20),
+
+        // ── Active Notifications ──────────────────────────────────────
+        Row(
+          children: [
+            const Text(
+              'Active Notifications',
+              style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.5),
+            ),
+            if (notifHistory.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1).withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${notifHistory.length}',
+                  style: const TextStyle(color: Color(0xFF818CF8), fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => ref.read(notificationHistoryProvider.notifier).state = [],
+                child: const Text('Clear all', style: TextStyle(color: Colors.white38, fontSize: 11)),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        if (notifHistory.isEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            alignment: Alignment.center,
+            child: const Text(
+              'No active notifications',
+              style: TextStyle(color: Colors.white24, fontSize: 13),
+            ),
+          )
+        else
+          ...notifHistory.map((n) => _NotifRow(notif: n)),
       ],
     );
   }
 }
 
-
-class _SettingsView extends ConsumerWidget {
-  const _SettingsView();
+/// A single compact notification row.
+class _NotifRow extends ConsumerWidget {
+  const _NotifRow({required this.notif});
+  final PhoneNotificationData notif;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final clipSync = ref.watch(clipboardSyncEnabledProvider);
-
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        title: const Text('Continuity Settings'),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF1E293B)),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SwitchListTile(
-            title: const Text('Universal Clipboard Sync'),
-            subtitle: const Text('Automatically share NSPasteboard with paired Android device'),
-            value: clipSync,
-            onChanged: (val) {
-              ref.read(clipboardSyncEnabledProvider.notifier).state = val;
+          // App initial avatar
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              (notif.appName?.isNotEmpty == true ? notif.appName![0] : '?').toUpperCase(),
+              style: const TextStyle(color: Color(0xFF818CF8), fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      notif.appName ?? 'Unknown',
+                      style: const TextStyle(color: Colors.white54, fontSize: 10, fontWeight: FontWeight.w600),
+                    ),
+                    const Spacer(),
+                    if (notif.time != null)
+                      Text(
+                        notif.time!,
+                        style: const TextStyle(color: Colors.white24, fontSize: 10),
+                      ),
+                  ],
+                ),
+                if (notif.title != null && notif.title!.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    notif.title!,
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+                if (notif.text != null && notif.text!.isNotEmpty) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    notif.text!,
+                    style: const TextStyle(color: Colors.white60, fontSize: 12),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          // Dismiss
+          GestureDetector(
+            onTap: () {
+              final current = ref.read(notificationHistoryProvider);
+              ref.read(notificationHistoryProvider.notifier).state =
+                  current.where((n) => n.id != notif.id).toList();
             },
+            child: const Padding(
+              padding: EdgeInsets.only(left: 8),
+              child: Icon(Icons.close_rounded, size: 14, color: Colors.white24),
+            ),
           ),
         ],
       ),
@@ -865,7 +940,130 @@ class _SettingsView extends ConsumerWidget {
   }
 }
 
-class _NotificationHistoryDrawer extends StatelessWidget {
+class _MetricBadge extends StatelessWidget {
+  const _MetricBadge({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContinuityFeatureCard extends StatelessWidget {
+  const _ContinuityFeatureCard({
+    required this.icon,
+    required this.title,
+    required this.status,
+    required this.description,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final String status;
+  final String description;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131C2E).withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      status,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    fontSize: 11,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+
+class _NotificationHistoryDrawer extends ConsumerWidget {
   const _NotificationHistoryDrawer({
     required this.history,
     required this.onClose,
@@ -877,7 +1075,7 @@ class _NotificationHistoryDrawer extends StatelessWidget {
   final VoidCallback onClear;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       width: 320,
       decoration: BoxDecoration(
@@ -903,7 +1101,7 @@ class _NotificationHistoryDrawer extends StatelessWidget {
                 const Icon(Icons.history_rounded, color: Color(0xFF818CF8), size: 18),
                 const SizedBox(width: 8),
                 const Text(
-                  'Notification History',
+                  'Active Notifications',
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 const Spacer(),
@@ -939,12 +1137,6 @@ class _NotificationHistoryDrawer extends StatelessWidget {
                           Icon(Icons.notifications_none_rounded, color: Colors.white24, size: 40),
                           SizedBox(height: 12),
                           Text('No notifications', style: TextStyle(color: Colors.white60, fontSize: 13, fontWeight: FontWeight.w600)),
-                          SizedBox(height: 8),
-                          Text(
-                            'To mirror phone notifications, ensure Notification Access permission is enabled in your Splurter Android app.',
-                            style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.3),
-                            textAlign: TextAlign.center,
-                          ),
                         ],
                       ),
                     ),
@@ -955,62 +1147,233 @@ class _NotificationHistoryDrawer extends StatelessWidget {
                     separatorBuilder: (context, index) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final item = history[index];
-                      return Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B).withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    item.appName,
-                                    style: const TextStyle(
-                                      color: Color(0xFF818CF8),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                                const Spacer(),
-                                Text(
-                                  item.time,
-                                  style: const TextStyle(color: Colors.white38, fontSize: 10),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              item.title,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                            if (item.text.isNotEmpty) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                item.text,
-                                style: const TextStyle(color: Colors.white70, fontSize: 12),
-                              ),
-                            ],
-                          ],
-                        ),
+                      return _NotificationItemTile(
+                        item: item,
+                        onDismiss: () {
+                          final id = item.id;
+                          if (id != null) {
+                            dismissAndroidNotification(id).ignore();
+                            final relay = RelayLoop.instance;
+                            final uid = relay.currentUid ?? kMacHostUid;
+                            relay.dismissNotification(
+                              uid: uid,
+                              senderId: kMacDeviceId,
+                              recipientId: 'android-device-id',
+                              notifId: id,
+                            ).ignore();
+                          }
+                          final currentHistory = ref.read(notificationHistoryProvider);
+                          ref.read(notificationHistoryProvider.notifier).state =
+                              currentHistory.where((n) => n != item).toList();
+                        },
                       );
                     },
                   ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotificationItemTile extends StatefulWidget {
+  const _NotificationItemTile({
+    required this.item,
+    required this.onDismiss,
+  });
+
+  final PhoneNotificationData item;
+  final VoidCallback onDismiss;
+
+  @override
+  State<_NotificationItemTile> createState() => _NotificationItemTileState();
+}
+
+class _NotificationItemTileState extends State<_NotificationItemTile> {
+  bool _isReplying = false;
+  bool _isSending = false;
+  bool _isSent = false;
+  final _replyController = TextEditingController();
+
+  @override
+  void dispose() {
+    _replyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendReply() async {
+    final text = _replyController.text.trim();
+    if (text.isEmpty || widget.item.id == null) return;
+    setState(() {
+      _isSending = true;
+    });
+
+    final relay = RelayLoop.instance;
+    final uid = relay.currentUid ?? kMacHostUid;
+    await relay.replyToNotification(
+      uid: uid,
+      senderId: kMacDeviceId,
+      recipientId: 'android-device-id',
+      notifId: widget.item.id!,
+      text: text,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isSending = false;
+        _isSent = true;
+      });
+      await Future.delayed(const Duration(milliseconds: 1500));
+      if (mounted) {
+        setState(() {
+          _isReplying = false;
+          _isSent = false;
+          _replyController.clear();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B).withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  widget.item.appName,
+                  style: const TextStyle(
+                    color: Color(0xFF818CF8),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                widget.item.time,
+                style: const TextStyle(color: Colors.white38, fontSize: 10),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.white38, size: 14),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: 'Dismiss on Android',
+                onPressed: widget.onDismiss,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            widget.item.title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+          if (widget.item.text.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              widget.item.text,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
+          if (widget.item.canReply) ...[
+            const SizedBox(height: 8),
+            if (!_isReplying)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _isReplying = true),
+                  icon: const Icon(Icons.reply_rounded, size: 14, color: Color(0xFF38BDF8)),
+                  label: const Text(
+                    'Quick Reply',
+                    style: TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.w600),
+                  ),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    backgroundColor: const Color(0xFF38BDF8).withValues(alpha: 0.1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  ),
+                ),
+              )
+            else
+              Container(
+                margin: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _replyController,
+                        autofocus: true,
+                        enabled: !_isSending && !_isSent,
+                        onSubmitted: (_) => _sendReply(),
+                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                        decoration: InputDecoration(
+                          hintText: _isSent ? 'Reply sent ✓' : 'Type reply to ${widget.item.appName}...',
+                          hintStyle: TextStyle(
+                            color: _isSent ? const Color(0xFF4ADE80) : Colors.white38,
+                            fontSize: 12,
+                          ),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                          border: InputBorder.none,
+                        ),
+                      ),
+                    ),
+                    if (_isSending)
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                      )
+                    else if (_isSent)
+                      const Icon(Icons.check_circle_rounded, color: Color(0xFF4ADE80), size: 16)
+                    else ...[
+                      IconButton(
+                        icon: const Icon(Icons.send_rounded, color: Color(0xFF38BDF8), size: 16),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        tooltip: 'Send Reply',
+                        onPressed: _sendReply,
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, color: Colors.white38, size: 14),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        tooltip: 'Cancel',
+                        onPressed: () => setState(() => _isReplying = false),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+          ],
         ],
       ),
     );
