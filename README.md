@@ -19,7 +19,7 @@ directly over your Wi-Fi, end-to-end encrypted. No account and no cloud.</p>
 | **Calls** | Incoming-call popup on the Mac with the caller's name and Answer or Decline. Dial from the Mac. | ✅ |
 | **Texts** | Send an SMS from the Mac. Incoming texts arrive as notifications. | ✅ |
 | **Files** | Drag files onto the menu-bar popover to send to the phone. Share from the phone to send to the Mac. | ✅ |
-| **Screen mirroring + control** | A Mac window shaped like your phone (its corner radius and camera hole). Click, drag, scroll and type into it. It works while the phone is locked or on its always-on display, with no prompt on the phone. It uses the same wireless-debugging setup as call audio; without it, a basic screen-share mirror (approved on the phone each time) is the fallback. | ✅ |
+| **Screen mirroring + control** | A Mac window shaped like your phone (its corner radius and camera hole). Click, drag, scroll and type into it. It works while the phone is locked or on its always-on display, with no prompt on the phone. Once you start using it, the phone's own screen switches off (like iPhone Mirroring) and comes back when you close the window. It uses the same wireless-debugging setup as call audio; without it, a basic screen-share mirror (approved on the phone each time) is the fallback. | ✅ |
 | **Call audio on the Mac** | Talk on a cellular call through the Mac: the caller plays on the Mac and your Mac mic goes into the call. | 🧪 beta ³ |
 | **Phone as webcam** | Use the phone camera as a Mac camera. | ⏳ not built ⁴ |
 

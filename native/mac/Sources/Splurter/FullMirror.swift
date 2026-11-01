@@ -22,6 +22,7 @@ final class FullMirror: ObservableObject {
     private var vfd: Int32 = -1, cfd: Int32 = -1
     private var frame = (w: 0, h: 0)
     private var lastInput = Date.distantPast
+    private var panelOff = false
 
     private func set(_ p: Phase) { DispatchQueue.main.async { self.phase = p } }
     private func log(_ s: String) { CallAudio.shared.log("mirror: " + s) }
@@ -40,7 +41,7 @@ final class FullMirror: ObservableObject {
         guard let s = adb.findPhone(log: log, reconnecting: { self.set(.working("Reconnecting to your phone…")) }) else {
             return set(.failed("Your phone isn't reachable for wireless debugging. Turn on Developer options, Wireless debugging (same Wi-Fi), or pair it in “Call audio setup…”."))
         }
-        serial = s; guard g == gen else { return }
+        serial = s; panelOff = false; frame = (0, 0); guard g == gen else { return }
         guard let jar = Bundle.main.url(forResource: "scrcpy-server", withExtension: "jar") else { return set(.failed("The app is missing its phone-mirror helper")) }
         let r = adb.run(["-s", s, "push", jar.path, "/data/local/tmp/scrcpy-server.jar"], timeout: 30)
         guard r.status == 0 else { return set(.failed("Could not copy the helper to the phone: \(r.output.prefix(100))")) }
@@ -52,7 +53,7 @@ final class FullMirror: ObservableObject {
         forwardPort = port
 
         let p = Process(); p.executableURL = URL(fileURLWithPath: adb.path!)
-        p.arguments = ["-s", s, "shell", "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 5.0.1 scid=\(scid) log_level=info tunnel_forward=true audio=false control=true cleanup=false max_size=1920 video_bit_rate=12000000 max_fps=60"]
+        p.arguments = ["-s", s, "shell", "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 5.0.1 scid=\(scid) log_level=info tunnel_forward=true audio=false control=true cleanup=false max_size=1920 video_bit_rate=16000000 max_fps=120"]
         let out = Pipe(); p.standardOutput = out; p.standardError = out
         let up = DispatchSemaphore(value: 0)
         out.fileHandleForReading.readabilityHandler = { h in
@@ -107,6 +108,8 @@ final class FullMirror: ObservableObject {
     }
 
     private func teardown() {
+        if panelOff, cfd >= 0 { var on: [UInt8] = [10, 1]; _ = write(cfd, &on, 2); Thread.sleep(forTimeInterval: 0.15) } // panel back on before the helper goes
+        panelOff = false
         for f in [vfd, cfd] where f >= 0 { shutdown(f, SHUT_RDWR); close(f) }
         vfd = -1; cfd = -1
         if let p = server, p.isRunning { p.terminate() }; server = nil
@@ -134,12 +137,23 @@ final class FullMirror: ObservableObject {
 
     // MARK: input (control socket, scrcpy message types)
 
-    private func send(_ bytes: [UInt8]) { ctl.async { if self.cfd >= 0 { _ = bytes.withUnsafeBytes { write(self.cfd, $0.baseAddress!, bytes.count) } } } }
+    /// One message per call, written whole: a short write would desync scrcpy's message stream and freeze all input.
+    private func send(_ bytes: [UInt8]) {
+        ctl.async {
+            var off = 0
+            while off < bytes.count, self.cfd >= 0 {
+                let n = bytes.withUnsafeBytes { write(self.cfd, $0.baseAddress! + off, bytes.count - off) }
+                if n <= 0 { if n < 0, errno == EINTR || errno == EAGAIN { continue }; return }
+                off += n
+            }
+        }
+    }
     private static func be(_ v: Int, _ n: Int) -> [UInt8] { (0..<n).map { UInt8(truncatingIfNeeded: v >> (8 * (n - 1 - $0))) } }
 
     /// action: 0 down, 1 up, 2 move. x/y are 0...1 of the video frame.
     func touch(_ action: UInt8, _ x: Double, _ y: Double) {
-        if action == 0 { wakeIfIdle() }
+        guard cfd >= 0, frame.w > 0, frame.h > 0 else { return } // not connected yet: a click then must not count as "using the phone"
+        if action == 0 { wakeIfIdle(); blankPanel() }
         let px = Int(min(max(x, 0), 1) * Double(frame.w - 1)), py = Int(min(max(y, 0), 1) * Double(frame.h - 1))
         send([2, action] + Self.be(-1, 8) + Self.be(px, 4) + Self.be(py, 4) + Self.be(frame.w, 2) + Self.be(frame.h, 2)
              + Self.be(action == 1 ? 0 : 0xffff, 2) + Self.be(1, 4) + Self.be(action == 1 ? 0 : 1, 4))
@@ -154,6 +168,10 @@ final class FullMirror: ObservableObject {
     func key(_ code: Int) { send([0, 0] + Self.be(code, 4) + Self.be(0, 4) + Self.be(0, 4)); send([0, 1] + Self.be(code, 4) + Self.be(0, 4) + Self.be(0, 4)); lastInput = Date() }
     func text(_ s: String) { let b = Array(s.utf8); send([1] + Self.be(b.count, 4) + b); lastInput = Date() }
     static let home = 3, back = 4, recents = 187, power = 26, wakeup = 224, enter = 66, del = 67
+
+    /// Like iPhone Mirroring, using the phone from the Mac shouldn't light up or scroll the phone itself: once you start interacting,
+    /// the phone's panel is switched off (the phone stays awake and keeps being mirrored). It comes back when the window closes.
+    private func blankPanel() { guard !panelOff else { return }; panelOff = true; log("phone panel off (cfd \(cfd))"); send([10, 0]) }
 
     /// Touching a dozing phone (always-on display) wouldn't wake it; a WAKEUP key first is harmless when it's awake.
     private func wakeIfIdle() { if Date().timeIntervalSince(lastInput) > 10 { key(Self.wakeup) }; lastInput = Date() }
@@ -233,6 +251,7 @@ struct WindowClear: NSViewRepresentable {
 /// Hosts the video layer; mouse becomes touch (down/move/up), wheel becomes scroll, typing becomes text.
 final class TouchView: NSView {
     override var acceptsFirstResponder: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false } // else dragging on the phone drags the window (the window is movable by its background)
     override func viewDidMoveToWindow() { window?.makeFirstResponder(self) }
     private func norm(_ e: NSEvent) -> (Double, Double) {
         let p = convert(e.locationInWindow, from: nil)
@@ -241,7 +260,22 @@ final class TouchView: NSView {
     override func mouseDown(with e: NSEvent) { let p = norm(e); FullMirror.shared.touch(0, p.0, p.1) }
     override func mouseDragged(with e: NSEvent) { let p = norm(e); FullMirror.shared.touch(2, p.0, p.1) }
     override func mouseUp(with e: NSEvent) { let p = norm(e); FullMirror.shared.touch(1, p.0, p.1) }
-    override func scrollWheel(with e: NSEvent) { let p = norm(e); FullMirror.shared.scroll(p.0, p.1, dy: Double(e.scrollingDeltaY) / (e.hasPreciseScrollingDeltas ? 8 : 1)) }
+    /// Trackpad scrolling becomes a real finger drag (down, moves, up), so the phone's own fling and 120 Hz smoothness apply.
+    /// Mouse wheels (no gesture phases) still use discrete wheel events.
+    private var finger: (x: Double, y: Double)?
+    override func scrollWheel(with e: NSEvent) {
+        guard e.hasPreciseScrollingDeltas, e.phase != [] || e.momentumPhase != [] else {
+            let p = norm(e); FullMirror.shared.scroll(p.0, p.1, dy: Double(e.scrollingDeltaY) / (e.hasPreciseScrollingDeltas ? 8 : 1)); return
+        }
+        if e.momentumPhase != [] { return } // the phone continues the fling itself after the finger lifts
+        let dy = Double(e.scrollingDeltaY / bounds.height), dx = Double(e.scrollingDeltaX / bounds.width)
+        if e.phase.contains(.began) || (finger == nil && e.phase.contains(.changed)) { let p = norm(e); finger = p; FullMirror.shared.touch(0, p.0, p.1) }
+        if var f = finger {
+            f.x = min(max(f.x + dx, 0), 1); f.y = min(max(f.y + dy, 0), 1); finger = f
+            if !e.phase.contains(.began) { FullMirror.shared.touch(2, f.x, f.y) }
+        }
+        if e.phase.contains(.ended) || e.phase.contains(.cancelled), let f = finger { FullMirror.shared.touch(1, f.x, f.y); finger = nil }
+    }
     override func keyDown(with e: NSEvent) {
         switch e.keyCode {
         case 51: FullMirror.shared.key(FullMirror.del)
