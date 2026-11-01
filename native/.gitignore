@@ -3,3 +3,6 @@ build/
 local.properties
 .build/
 mac/Splurter.app/
+splurter-release.jks
+keystore.properties
+release/
