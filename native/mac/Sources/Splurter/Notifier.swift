@@ -10,7 +10,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let reply = UNTextInputNotificationAction(identifier: "reply", title: "Reply", options: [],
                                                   textInputButtonTitle: "Send", textInputPlaceholder: "Reply from Mac")
         let dismiss = UNNotificationAction(identifier: "dismiss", title: "Dismiss on phone", options: [])
+        let answer = UNNotificationAction(identifier: "answer", title: "Answer", options: [])
+        let decline = UNNotificationAction(identifier: "decline", title: "Decline", options: [.destructive])
         center.setNotificationCategories([
+            UNNotificationCategory(identifier: "call", actions: [answer, decline], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: "reply", actions: [reply, dismiss], intentIdentifiers: [], options: [.customDismissAction]),
             UNNotificationCategory(identifier: "plain", actions: [dismiss], intentIdentifiers: [], options: [.customDismissAction]),
         ])
@@ -29,6 +32,16 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.add(UNNotificationRequest(identifier: id, content: c, trigger: nil)) { NSLog("notif add \(id): \(String(describing: $0))") }
     }
 
+    /// Incoming calls are one banner with id "call", replaced as the number/name arrive and removed on idle.
+    func call(_ c: Link.Call) {
+        guard c.state == "ringing" else { return remove("call") }
+        let n = UNMutableNotificationContent()
+        n.title = c.name.isEmpty ? (c.number.isEmpty ? "Incoming call" : c.number) : c.name
+        n.subtitle = "Incoming call"; n.body = c.name.isEmpty ? "" : c.number
+        n.categoryIdentifier = "call"; n.sound = .defaultCritical
+        center.add(UNNotificationRequest(identifier: "call", content: n, trigger: nil))
+    }
+
     func remove(_ id: String) { center.removeDeliveredNotifications(withIdentifiers: [id]) }
 
     func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification,
@@ -37,6 +50,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse,
                                 withCompletionHandler done: @escaping () -> Void) {
         defer { done() }
+        switch r.actionIdentifier {
+        case "answer": Link.shared.sendMessage(["t": "call_answer"]); return
+        case "decline": Link.shared.sendMessage(["t": "call_end"]); return
+        default: break
+        }
         guard let id = r.notification.request.content.userInfo["id"] as? String else { return }
         switch r.actionIdentifier {
         case "reply":

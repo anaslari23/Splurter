@@ -11,8 +11,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
+import android.telephony.TelephonyManager
 
 class App : Application() {
     override fun onCreate() {
@@ -26,6 +28,7 @@ class App : Application() {
                     }
                     "dismiss" -> NotifService.instance?.cancelNotification(m.getString("id"))
                     "reply" -> NotifService.instance?.reply(m.getString("id"), m.getString("text"))
+                    else -> Phone.handle(this, m)
                 }
             }
         }
@@ -42,6 +45,10 @@ class LinkService : Service() {
         val n = Notification.Builder(this, "link").setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentTitle("Splurter").setContentText("Connected to your Mac in the background").build()
         startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        registerReceiver(object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) = Phone.report(c, i.getStringExtra(TelephonyManager.EXTRA_STATE),
+                i.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER))
+        }, IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED), Context.RECEIVER_EXPORTED)
         App.link.start()
     }
     override fun onStartCommand(i: Intent?, f: Int, id: Int) = START_STICKY

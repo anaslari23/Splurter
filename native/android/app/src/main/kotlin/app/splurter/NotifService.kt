@@ -30,7 +30,8 @@ class NotifService : NotificationListenerService() {
 
     private fun push(sbn: StatusBarNotification, sync: Boolean) {
         val n = sbn.notification
-        if (sbn.packageName == packageName || sbn.isOngoing || n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+        if (sbn.packageName == packageName || sbn.isOngoing || n.flags and Notification.FLAG_GROUP_SUMMARY != 0 ||
+            n.category == Notification.CATEGORY_CALL) return // calls are handled natively, see Phone.kt
         val e = n.extras
         val title = e.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val text = (e.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: e.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()

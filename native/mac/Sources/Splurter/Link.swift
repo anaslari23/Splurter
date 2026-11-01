@@ -22,6 +22,8 @@ final class Link: ObservableObject {
     @Published var devices = Store.loadDevices()
     @Published var connectedName: String?
     @Published var log: [String] = []
+    struct Call { var state: String; var number: String; var name: String }
+    @Published var call: Call?
 
     private let q = DispatchQueue(label: "link")
     private let identity = Store.identity()
@@ -143,6 +145,13 @@ final class Link: ObservableObject {
                 self.lastChange = NSPasteboard.general.changeCount
                 self.log(" ← \(text.prefix(40))")
             }
+        case "call":
+            let c = Call(state: m["state"] as? String ?? "idle", number: m["number"] as? String ?? "", name: m["name"] as? String ?? "")
+            DispatchQueue.main.async {
+                self.call = c.state == "idle" ? nil : c
+                Notifier.shared.call(c)
+            }
+        case "sms_sent": DispatchQueue.main.async { self.log("✓ text sent to \(m["to"] ?? "?")") }
         case "notif": DispatchQueue.main.async { Notifier.shared.show(m) }
         case "notif_gone": if let id = m["id"] as? String { DispatchQueue.main.async { Notifier.shared.remove(id) } }
         default: break

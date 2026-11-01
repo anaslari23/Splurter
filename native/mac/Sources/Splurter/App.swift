@@ -21,6 +21,8 @@ struct SplurterApp: App {
 
 struct MenuView: View {
     @ObservedObject var link: Link
+    @State private var number = ""
+    @State private var message = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -30,6 +32,28 @@ struct MenuView: View {
 
             ForEach(link.devices) { d in
                 HStack { Image(systemName: "iphone"); Text(d.name); Spacer(); Button("Forget") { link.forget(d.id) }.buttonStyle(.link) }
+            }
+
+            if let c = link.call {
+                HStack {
+                    Image(systemName: "phone.fill")
+                    Text(c.state == "ringing" ? "Incoming: \(c.name.isEmpty ? c.number : c.name)" : "On call: \(c.name.isEmpty ? c.number : c.name)")
+                    Spacer()
+                    if c.state == "ringing" { Button("Answer") { link.sendMessage(["t": "call_answer"]) } }
+                    Button(c.state == "ringing" ? "Decline" : "End") { link.sendMessage(["t": "call_end"]) }
+                }
+            }
+
+            if link.connectedName != nil {
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField("Phone number", text: $number)
+                    TextField("Message", text: $message)
+                    HStack {
+                        Button("Call") { link.sendMessage(["t": "dial", "number": number]) }
+                        Button("Send text") { link.sendMessage(["t": "sms_send", "to": number, "text": message]); message = "" }
+                            .disabled(number.isEmpty || message.isEmpty)
+                    }
+                }.textFieldStyle(.roundedBorder)
             }
 
             if link.pairing {

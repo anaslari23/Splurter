@@ -17,7 +17,9 @@ class MainActivity : Activity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.SEND_SMS, Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_CALL_LOG, Manifest.permission.ANSWER_PHONE_CALLS, Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_CONTACTS), 0)
         startForegroundService(Intent(this, LinkService::class.java))
 
         status = TextView(this).apply { text = link.state; textSize = 18f }
