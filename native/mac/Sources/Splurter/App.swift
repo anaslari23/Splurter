@@ -20,6 +20,9 @@ struct SplurterApp: App {
         Window("Phone screen", id: "mirror") { MirrorView() }
             .defaultSize(width: 340, height: 740)
 
+        Window("Call audio setup", id: "callaudio") { CallAudioSetupView() }
+            .windowResizability(.contentSize)
+
         // First run: open straight to pairing. Afterwards it's only opened from the menu.
         Window("Welcome to Splurter", id: "welcome") { WelcomeView(link: link) }
             .windowResizability(.contentSize)
@@ -32,6 +35,7 @@ struct SplurterApp: App {
 struct MenuView: View {
     @ObservedObject var link: Link
     @Environment(\.openWindow) private var openWindow
+    @ObservedObject private var callAudio = CallAudio.shared
     @State private var showDial = false
     @State private var number = ""
     @State private var message = ""
@@ -100,17 +104,50 @@ struct MenuView: View {
 
     private func callCard(_ c: Link.Call) -> some View {
         let who = c.name.isEmpty ? c.number : c.name
-        return HStack(spacing: 10) {
-            Image(systemName: "phone.fill").foregroundStyle(.white).frame(width: 34, height: 34).background(.green, in: Circle())
-            VStack(alignment: .leading) {
-                Text(who.isEmpty ? "Unknown caller" : who).font(.headline)
-                Text(c.state == "ringing" ? "Incoming call" : "On call · voice stays on your phone").font(.caption).foregroundStyle(.secondary)
+        return VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "phone.fill").foregroundStyle(.white).frame(width: 34, height: 34).background(.green, in: Circle())
+                VStack(alignment: .leading) {
+                    Text(who.isEmpty ? "Unknown caller" : who).font(.headline)
+                    Text(c.state == "ringing" ? "Incoming call" : callAudio.phase == .live ? "On call · talking through your Mac" : "On call · voice is on your phone").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if c.state == "ringing" { Button("Answer") { link.sendMessage(["t": "call_answer"]) }.tint(.green).buttonStyle(.borderedProminent) }
+                Button(c.state == "ringing" ? "Decline" : "End") { link.sendMessage(["t": "call_end"]) }.tint(.red).buttonStyle(.bordered)
             }
-            Spacer()
-            if c.state == "ringing" { Button("Answer") { link.sendMessage(["t": "call_answer"]) }.tint(.green).buttonStyle(.borderedProminent) }
-            Button(c.state == "ringing" ? "Decline" : "End") { link.sendMessage(["t": "call_end"]) }.tint(.red).buttonStyle(.bordered)
+            if c.state == "offhook" { callAudioRow }
         }
         .padding(12).background(.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder private var callAudioRow: some View {
+        VStack(spacing: 6) { callAudioControls
+            if let tip = callAudio.routeAdvice(), callAudio.phase == .idle || callAudio.phase == .live {
+                Text(tip).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+            } }
+    }
+
+    @ViewBuilder private var callAudioControls: some View {
+        switch callAudio.phase {
+        case .idle:
+            Button { callAudio.start() } label: { Label("Use Mac audio", systemImage: "headphones") }.buttonStyle(.bordered).frame(maxWidth: .infinity)
+        case .working(let t):
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text(t).font(.caption).foregroundStyle(.secondary); Spacer() }
+        case .live:
+            HStack { Label("Live. Wear headphones to avoid echo.", systemImage: "waveform").font(.caption).foregroundStyle(.green); Spacer()
+                Button("Stop") { callAudio.stop() }.controlSize(.small) }
+        case .needsSetup(let why):
+            VStack(alignment: .leading, spacing: 6) {
+                Text(why).font(.caption).foregroundStyle(.secondary)
+                Button("Set up call audio…") { openWindow(id: "callaudio"); NSApp.activate(ignoringOtherApps: true) }.buttonStyle(.borderedProminent).controlSize(.small)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        case .failed(let why):
+            VStack(alignment: .leading, spacing: 6) {
+                Text(why).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                HStack { Button("Try again") { callAudio.stop(); callAudio.start() }.controlSize(.small)
+                    Button("Set up…") { openWindow(id: "callaudio"); NSApp.activate(ignoringOtherApps: true) }.controlSize(.small) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var actions: some View {

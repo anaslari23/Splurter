@@ -1,11 +1,15 @@
 #!/bin/sh
 # Builds Splurter.app (menu-bar agent, ad-hoc signed) next to this script.
 set -e; cd "$(dirname "$0")"
+# Call-audio helper (phone side) + scrcpy's server jar (checksum-verified), bundled as resources.
+../callbridge/build_helper.sh
+[ -f ../callbridge/scrcpy-server.jar ] || ../callbridge/fetch_scrcpy_server.sh
 swift build -c release
 A=Splurter.app; rm -rf $A; mkdir -p $A/Contents/MacOS
 mkdir -p $A/Contents/Resources
 cp .build/release/Splurter $A/Contents/MacOS/
 cp ../icons/AppIcon.icns $A/Contents/Resources/
+cp ../callbridge/helper/bridge.dex ../callbridge/scrcpy-server.jar ../callbridge/THIRD_PARTY_NOTICES.txt $A/Contents/Resources/
 cat > $A/Contents/Info.plist <<PL
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
