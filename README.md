@@ -19,12 +19,12 @@ directly over your Wi-Fi, end-to-end encrypted. No account and no cloud.</p>
 | **Texts** | Send an SMS from the Mac. Incoming texts arrive as notifications. | ✅ |
 | **Files** | Drag files onto the menu-bar popover to send to the phone. Share from the phone to send to the Mac. | ✅ |
 | **Screen mirroring + control** | Live phone screen in a Mac window. Click, drag, scroll and type into it. Needs your explicit approval on the phone each time. | ✅ |
-| **Call audio on the Mac** | Talk on a call through the Mac. | ⏸ parked ³ |
+| **Call audio on the Mac** | Talk on a cellular call through the Mac: the caller plays on the Mac and your Mac mic goes into the call. | 🧪 prototype ³ |
 | **Phone as webcam** | Use the phone camera as a Mac camera. | ⏳ not built ⁴ |
 
 ¹ Android 10+ blocks background clipboard reads, so phone to Mac is deliberately a button or share action.
 ² Reply was built but is untested against a real chat app. Apps must expose an inline-reply action.
-³ The audio bridge works, but Android feeds apps silence from the microphone during a cellular call. See [Known limits](#known-limits).
+³ Works on a real call (Pixel 9a, Android 17) through a helper that runs with adb shell privileges over wireless debugging, no hardware or root. It is a separate prototype in [`native/callbridge`](native/callbridge/README.md), not yet built into the apps, and it is tested on one phone. See [Known limits](#known-limits).
 ⁴ Needs a macOS Camera Extension, which must be signed with an Apple Developer team ID.
 
 ## How it works
@@ -54,7 +54,6 @@ Build the artifacts yourself (see [Build](#build)); there are no prebuilt releas
 | Notifications | Notification access for Splurter |
 | Calls, Texts, Contacts | The phone, SMS and contacts permissions |
 | Screen control | Accessibility service (see below) |
-| Hands-free call audio | Microphone permission (experimental) |
 
 **Screen control** is an Android accessibility service. For a sideloaded app Android blocks it until you open Settings, Apps, Splurter, the **⋮** menu, **Allow restricted settings**, then Settings, Accessibility, Splurter, switch on. The phone only acts on remote input while a mirroring session you approved is running.
 
@@ -81,8 +80,9 @@ Android only: `cd native/android && ./gradlew :app:assembleDebug` (set `JAVA_HOM
 
 ```
 native/
-  mac/        Swift package + build_app.sh   (Link, Crypto, Notifier, Mirror, AudioBridge, App UI)
+  mac/        Swift package + build_app.sh   (Link, Crypto, Notifier, Mirror, App UI)
   android/    Gradle project                 (Link, NotifService, Phone, Files, Mirror, Control, Audio, Compose UI)
+  callbridge/ two-way call audio prototype (phone helper + Mac client)
   icons/      make_icons.swift               (generates the Mac .icns and the Android icon layers)
   package.sh  release packaging
 docs/         protocol and project docs
@@ -90,8 +90,8 @@ docs/         protocol and project docs
 
 ## Known limits
 
-- **Call audio.** Android does not let apps tap or inject cellular call audio. The bridge is acoustic (phone microphone to Mac, Mac voice out of the phone speaker), and during a real call Android returned silence from the microphone. An accessibility-service exemption might change that and is untested. The probe for it is behind `AudioService.PROBE`.
-- **macOS 27 audio engine.** Voice processing and playback cannot run in one `AVAudioEngine` on macOS 27 (error -10875), so capture and playback use separate engines.
+- **Call audio is a prototype.** Android silences the microphone for apps during cellular calls and does not let them reach the call's audio, so ordinary app code cannot do this. The prototype works around it with a helper that runs as the adb **shell** user (started over wireless debugging), which holds the permissions apps lack: it captures the caller with `VOICE_DOWNLINK` and plays the Mac's voice into the call uplink with the system `CALL_ASSISTANT` usage. It needs wireless debugging (paired again after phone reboots), headphones on the Mac (no echo cancellation yet), and has only been tested on one device. Bluetooth routes were also tried and do not work on macOS: it refuses hands-free call audio, and its Bluetooth controller rejects the connection timing Android's hearing-aid protocol demands. Details and tuning notes: [native/callbridge/README.md](native/callbridge/README.md).
+- **macOS 27 audio engine.** Voice processing and playback cannot run in one `AVAudioEngine` on macOS 27 (error -10875), so the call-audio client uses separate capture and playback engines.
 - **Clipboard.** Phone to Mac cannot be automatic on Android 10+.
 - **Mirroring.** The video size is fixed when a session starts (rotating the phone mid-session is not handled). Secure screens such as banking apps block capture by design. Dragging is sent on release rather than live.
 - **Typing into the mirror** appends to or deletes from the end of the focused field (no cursor positioning).

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>app.splurter.callbridge</string><key>CFBundleName</key><string>CBMac</string>
+<key>CFBundleExecutable</key><string>cbmac</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/>
+<key>NSMicrophoneUsageDescription</key><string>Talk on your phone call through this Mac.</string>
+</dict></plist>
