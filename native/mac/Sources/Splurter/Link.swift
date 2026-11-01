@@ -179,6 +179,7 @@ final class Link: ObservableObject {
 
     private func handle(_ plain: Data, _ k: Conn) {
         let plain = Data(plain)
+        if plain.first == 2 { Mirror.shared.feed(plain); return } // video frame
         if plain.first == 1 { // file chunk
             let id = plain[1..<5].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
             try? incoming[id]?.h.write(contentsOf: plain.dropFirst(5)); return
@@ -208,6 +209,9 @@ final class Link: ObservableObject {
                 Notifier.shared.call(c)
             }
         case "sms_sent": DispatchQueue.main.async { self.log("message.fill", "Text sent to \(m["to"] ?? "?")") }
+        case "mirror_info":
+            if let w = m["w"] as? Double, let h = m["h"] as? Double, h > 0 { DispatchQueue.main.async { Mirror.shared.aspect = w / h } }
+        case "mirror_state": DispatchQueue.main.async { Mirror.shared.state = m["state"] as? String ?? "idle" }
         case "file", "file_end": receive(m, t)
         case "notif": DispatchQueue.main.async { Notifier.shared.show(m) }
         case "notif_gone": if let id = m["id"] as? String { DispatchQueue.main.async { Notifier.shared.remove(id) } }

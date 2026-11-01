@@ -29,6 +29,8 @@ class App : Application() {
                     }
                     "dismiss" -> NotifService.instance?.cancelNotification(m.getString("id"))
                     "reply" -> NotifService.instance?.reply(m.getString("id"), m.getString("text"))
+                    "mirror_start" -> Mirror.request(this)
+                    "mirror_stop" -> MirrorService.instance?.stopSelf()
                     "file", "file_end" -> Files.onJson(this, m)
                     else -> Phone.handle(this, m)
                 }

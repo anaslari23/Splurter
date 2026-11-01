@@ -17,6 +17,9 @@ struct SplurterApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        Window("Phone screen", id: "mirror") { MirrorView() }
+            .defaultSize(width: 340, height: 740)
+
         // First run: open straight to pairing. Afterwards it's only opened from the menu.
         Window("Welcome to Splurter", id: "welcome") { WelcomeView(link: link) }
             .windowResizability(.contentSize)
@@ -116,8 +119,13 @@ struct MenuView: View {
                 let p = NSOpenPanel(); p.canChooseFiles = true; p.allowsMultipleSelection = true
                 if p.runModal() == .OK { p.urls.forEach(link.sendFile) }
             }
-            ActionTile(icon: "phone.arrow.up.right", label: "Call or text", enabled: connected, active: showDial) { showDial.toggle() }
-            ActionTile(icon: "qrcode", label: "Pair phone", enabled: true) { openPairing() }
+            ActionTile(icon: "rectangle.on.rectangle", label: "Mirror", enabled: connected) {
+                Mirror.shared.state = "waiting"
+                openWindow(id: "mirror"); NSApp.activate(ignoringOtherApps: true)
+                link.sendMessage(["t": "mirror_start"])
+            }
+            ActionTile(icon: "phone.arrow.up.right", label: "Call/text", enabled: connected, active: showDial) { showDial.toggle() }
+            ActionTile(icon: "qrcode", label: "Pair", enabled: true) { openPairing() }
         }
     }
 

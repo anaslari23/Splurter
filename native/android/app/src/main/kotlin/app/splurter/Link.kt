@@ -46,6 +46,8 @@ class Link(private val ctx: Context) {
     var onConnected: (() -> Unit)? = null
     var onChunk: ((ByteArray) -> Unit)? = null
     val connected get() = out != null
+    private val pending = java.util.concurrent.atomic.AtomicInteger()
+    val backlog get() = pending.get() // frames queued for the wire; video senders drop when this grows
     private val tx = java.util.concurrent.Executors.newSingleThreadExecutor()
     val paired get() = prefs.contains("mac_key")
 
@@ -78,6 +80,8 @@ class Link(private val ctx: Context) {
 
     /** Thread-safe, non-blocking; frames go out in call order. */
     fun send(m: JSONObject) { tx.execute { sendNow(m) } }
+
+    fun sendVideo(plain: ByteArray) { pending.incrementAndGet(); tx.execute { try { sendRaw(plain) } finally { pending.decrementAndGet() } } }
 
     /** Waits until the frame is written — gives file senders backpressure so small messages can interleave. */
     fun sendBlocking(plain: ByteArray) { tx.submit { sendRaw(plain) }.get() }
