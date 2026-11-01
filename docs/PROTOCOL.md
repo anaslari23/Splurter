@@ -57,6 +57,10 @@ The Mac sends a `ping` every 10 s; the phone treats 35 s of silence as a dead li
 | `clip` | both | `text` | Set the clipboard. |
 | `notif` | →M | `id`, `pkg`, `app`, `title`, `text`, `canReply`, `sync` | `sync:true` = quiet catch-up after reconnect. |
 | `notif_gone` | →M | `id` | Notification removed on the phone. |
+| `media` | →M | `sessions[]`: `pkg`, `title`, `artist`, `app`, `playing`, `dur`, `pos` (ms), `speed`, `art` (base64 JPEG, once per track) | All active media sessions, playing first. |
+| `volume` | →M | `level`, `max` | Phone music volume. |
+| `media_cmd` | M→ | `pkg`, `cmd` (`play` `pause` `next` `prev` `seek`), `pos` (ms) | Transport control for one player. |
+| `volume_set` | M→ | `level` (0–1) | Set the phone's music volume. |
 | `app_icon` | →M | `pkg`, `png` (base64) | Sent once per package per connection, before its first `notif`. |
 | `dismiss` | →P | `id` | Dismiss on the phone. |
 | `reply` | →P | `id`, `text` | Inline reply via the notification's remote input. |

@@ -27,6 +27,16 @@ final class Link: ObservableObject {
     struct Call { var state: String; var number: String; var name: String }
     @Published var call: Call?
     @Published var transfer: String?
+    struct Media: Identifiable { var id: String; var title: String; var artist: String; var app: String; var playing: Bool; var dur: Double; var pos: Double; var speed: Double; var stamp = Date(); var art: NSImage? }
+    @Published var players: [Media] = [] // every active media session on the phone, playing ones first
+    @Published var volume: Double = 0.5 // 0...1, the phone's music volume
+    private var volumeSetAt = Date.distantPast
+    func setVolume(_ v: Double) { volume = v; volumeSetAt = Date(); sendMessage(["t": "volume_set", "level": v]) }
+    func mediaCmd(_ cmd: String, pkg: String, pos: Double? = nil) {
+        var m: [String: Any] = ["t": "media_cmd", "cmd": cmd, "pkg": pkg]; if let pos { m["pos"] = Int(pos * 1000) }
+        sendMessage(m)
+        if let i = players.firstIndex(where: { $0.id == pkg }), cmd == "play" || cmd == "pause" { players[i].playing = cmd == "play"; players[i].pos += Date().timeIntervalSince(players[i].stamp) * (players[i].playing ? 0 : 1); players[i].stamp = Date() } // optimistic; the phone confirms
+    }
     private var incoming: [UInt32: (h: FileHandle, url: URL)] = [:]
 
     private let q = DispatchQueue(label: "link")
@@ -215,6 +225,23 @@ final class Link: ObservableObject {
                 CallPanel.shared.update(self.call)
                 CallAudio.shared.callChanged(c.state)
                 Notifier.shared.call(c)
+            }
+        case "media":
+            DispatchQueue.main.async {
+                let old = Dictionary(self.players.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                self.players = (m["sessions"] as? [[String: Any]] ?? []).map { j in
+                    let id = j["pkg"] as? String ?? ""
+                    let title = j["title"] as? String ?? "", artist = j["artist"] as? String ?? ""
+                    var x = Media(id: id, title: title, artist: artist, app: j["app"] as? String ?? id, playing: j["playing"] as? Bool ?? false,
+                                  dur: (j["dur"] as? Double ?? 0) / 1000, pos: (j["pos"] as? Double ?? 0) / 1000, speed: j["speed"] as? Double ?? 1,
+                                  art: old[id].flatMap { $0.title == title && $0.artist == artist ? $0.art : nil }) // keep the cover while the same track plays
+                    if let a = j["art"] as? String { x.art = Data(base64Encoded: a).flatMap(NSImage.init(data:)) }
+                    return x
+                }
+            }
+        case "volume":
+            if let l = m["level"] as? Double, let mx = m["max"] as? Double, mx > 0 {
+                DispatchQueue.main.async { if Date().timeIntervalSince(self.volumeSetAt) > 0.6 { self.volume = l / mx } } // ignore echoes of our own drag
             }
         case "sms_sent": DispatchQueue.main.async { self.log("message.fill", "Text sent to \(m["to"] ?? "?")") }
         case "mirror_info":
