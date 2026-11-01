@@ -21,7 +21,7 @@ class App : Application() {
         super.onCreate()
         link = Link(this).also { l ->
             l.onConnected = { NotifService.instance?.snapshot() }
-            l.onChunk = Files::onChunk
+            l.onBinary = { b -> if (b[0] == 1.toByte()) Files.onChunk(b) else if (b[0] == 3.toByte()) Audio.onFrame(b) }
             l.onMsg = { m ->
                 when (m.optString("t")) {
                     "clip" -> Handler(Looper.getMainLooper()).post {
@@ -30,6 +30,8 @@ class App : Application() {
                     "dismiss" -> NotifService.instance?.cancelNotification(m.getString("id"))
                     "reply" -> NotifService.instance?.reply(m.getString("id"), m.getString("text"))
                     "tap", "swipe", "key", "text" -> ControlService.instance?.handle(m)
+                    "audio_start" -> Audio.request(this, m.optString("src"))
+                    "audio_stop" -> AudioService.instance?.stopSelf()
                     "mirror_start" -> Mirror.request(this)
                     "mirror_stop" -> MirrorService.instance?.stopSelf()
                     "file", "file_end" -> Files.onJson(this, m)

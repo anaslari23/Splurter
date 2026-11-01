@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
                             Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)?.contains("app.splurter/") == true)
                         { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                         Feature("Calls", "Answer and decline from your Mac", featureIcons["calls"]!!, has(*calls)) { ask.launch(calls) },
+                        Feature("Call audio", "Talk on calls through your Mac", featureIcons["calls"]!!, has(Manifest.permission.RECORD_AUDIO)) { ask.launch(arrayOf(Manifest.permission.RECORD_AUDIO)) },
                         Feature("Text messages", "Send texts from your Mac", featureIcons["sms"]!!, has(Manifest.permission.SEND_SMS)) { ask.launch(arrayOf(Manifest.permission.SEND_SMS)) },
                         Feature("Contacts", "Show names instead of numbers", featureIcons["contacts"]!!, has(Manifest.permission.READ_CONTACTS)) { ask.launch(arrayOf(Manifest.permission.READ_CONTACTS)) },
                     ),

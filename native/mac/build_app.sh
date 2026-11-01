@@ -16,6 +16,7 @@ cat > $A/Contents/Info.plist <<PL
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>LSUIElement</key><true/>
 <key>NSLocalNetworkUsageDescription</key><string>Splurter talks directly to your phone on your Wi-Fi.</string>
+<key>NSMicrophoneUsageDescription</key><string>Splurter uses your Mac microphone to let you talk on phone calls.</string>
 <key>NSBonjourServices</key><array><string>_splurter._tcp</string></array>
 </dict></plist>
 PL

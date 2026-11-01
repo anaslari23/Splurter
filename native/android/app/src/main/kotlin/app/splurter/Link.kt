@@ -44,7 +44,7 @@ class Link(private val ctx: Context) {
     var onState: ((String) -> Unit)? = null
     var onMsg: ((JSONObject) -> Unit)? = null
     var onConnected: (() -> Unit)? = null
-    var onChunk: ((ByteArray) -> Unit)? = null
+    var onBinary: ((ByteArray) -> Unit)? = null
     val connected get() = out != null
     private val pending = java.util.concurrent.atomic.AtomicInteger()
     val backlog get() = pending.get() // frames queued for the wire; video senders drop when this grows
@@ -136,7 +136,7 @@ class Link(private val ctx: Context) {
                 val len = inp.readInt(); require(len in 16..(1 shl 20))
                 val body = ByteArray(len).also { inp.readFully(it) }
                 val plain = aead(Cipher.DECRYPT_MODE, recvKey, recvN++, body)
-                if (plain[0] == 1.toByte()) { onChunk?.invoke(plain); continue }
+                if (plain[0] == 1.toByte()) { onBinary?.invoke(plain); continue }
                 val m = JSONObject(String(plain, 1, plain.size - 1))
                 when (m.optString("t")) {
                     "hello" -> { ok = true; pendingToken = null; set("Connected to ${m.optString("name", "Mac")}"); onConnected?.invoke() }

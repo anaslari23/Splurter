@@ -55,6 +55,8 @@ final class Link: ObservableObject {
         Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.q.async { self?.send(["t": "ping"]) } }
     }
 
+    func sendAudio(_ pcm: Data) { q.async { self.sendFrame(Data([3]) + pcm) } }
+
     func sendMessage(_ o: [String: Any]) { q.async { self.send(o) } }
 
     func forget(_ id: String) {
@@ -179,6 +181,7 @@ final class Link: ObservableObject {
 
     private func handle(_ plain: Data, _ k: Conn) {
         let plain = Data(plain)
+        if plain.first == 3 { AudioBridge.shared.play(plain); return } // call audio
         if plain.first == 2 { Mirror.shared.feed(plain); return } // video frame
         if plain.first == 1 { // file chunk
             let id = plain[1..<5].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
@@ -206,9 +209,15 @@ final class Link: ObservableObject {
             DispatchQueue.main.async {
                 if c.state == "ringing", self.call?.state != "ringing" { self.log("phone.arrow.down.left", "Incoming call \(c.name.isEmpty ? c.number : c.name)") }
                 self.call = c.state == "idle" ? nil : c
+                if c.state == "idle" { AudioBridge.shared.stop() }
                 Notifier.shared.call(c)
             }
         case "sms_sent": DispatchQueue.main.async { self.log("message.fill", "Text sent to \(m["to"] ?? "?")") }
+        case "audio_state":
+            DispatchQueue.main.async {
+                if let l = m["level"] as? Double { AudioBridge.shared.level = l }
+                switch m["state"] as? String { case "live": AudioBridge.shared.state = "live"; case "off": AudioBridge.shared.stop(notifyPhone: false); default: break }
+            }
         case "mirror_info":
             if let w = m["w"] as? Double, let h = m["h"] as? Double, h > 0 { DispatchQueue.main.async { Mirror.shared.aspect = w / h } }
         case "mirror_state": DispatchQueue.main.async { Mirror.shared.state = m["state"] as? String ?? "idle" }
