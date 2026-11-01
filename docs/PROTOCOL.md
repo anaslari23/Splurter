@@ -42,7 +42,7 @@ The first byte of the decrypted plaintext is the **frame type**:
 | `0` | JSON message | UTF-8 JSON object with a `"t"` field |
 | `1` | File chunk | `id (4, big endian)` `data` (up to 192 KiB) |
 | `2` | Video | `kind (1: 0 SPS/PPS, 1 keyframe, 2 delta)` `H.264 Annex-B bytes` |
-| `3` | Call audio | PCM, signed 16-bit little endian, mono, 16 kHz (either direction) |
+| `3` | Call audio | PCM, signed 16-bit little endian, mono, 16 kHz (either direction). Reserved; the call-audio prototype in `native/callbridge` uses its own raw PCM socket instead of the Splurter link. |
 
 The Mac sends a `ping` every 10 s; the phone treats 35 s of silence as a dead link and reconnects with backoff (1 s doubling to 30 s).
 
