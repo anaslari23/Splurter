@@ -15,7 +15,7 @@
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <application android:name=".App" android:label="Splurter" android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:usesCleartextTraffic="true">
+    <application android:name=".App" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:label="Splurter" android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:usesCleartextTraffic="true">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
