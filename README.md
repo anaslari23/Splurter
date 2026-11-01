@@ -74,7 +74,7 @@ Talk on a normal phone call through your Mac: the caller plays in your Mac's hea
 
 **Using it:** during a call, press **Use Mac audio** in the Splurter menu (allow the microphone prompt the first time). It stops by itself when the call ends. While it runs, the phone's own microphone is muted so only your Mac voice goes out; it is unmuted afterwards.
 
-**Best results:** wired earbuds with a microphone. Bluetooth headphones add about a quarter second of delay, a Mac's built-in mic is quiet, and Mac speakers would echo into the call (there is no echo cancellation yet). The call card shows a hint for your current setup.
+**Best results:** wired earbuds with a microphone. Bluetooth headphones add about a quarter second of delay, a Mac's built-in mic is quiet, and Mac speakers would echo into the call (there is no echo cancellation yet). The call card shows a hint for your current setup, and the phone app has a **Call audio** row that shows whether Wireless debugging is on.
 
 **How it works:** Android keeps cellular call audio away from apps, but the adb shell user holds permissions apps lack. Splurter starts a small helper on the phone as that user, over wireless debugging. It captures the caller (`VOICE_DOWNLINK`) and plays your voice into the call uplink using the system `CALL_ASSISTANT` usage. The helper talks to the Mac over a socket that adb forwards, with a random name and a one-time token. Details and the measurements behind the tuning: [native/callbridge/README.md](native/callbridge/README.md).
 
