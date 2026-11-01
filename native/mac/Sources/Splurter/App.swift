@@ -37,6 +37,7 @@ struct MenuView: View {
     @Environment(\.openWindow) private var openWindow
     @ObservedObject private var callAudio = CallAudio.shared
     @State private var showDial = false
+    @State private var selectedPlayer = ""
     @State private var number = ""
     @State private var message = ""
 
@@ -104,8 +105,10 @@ struct MenuView: View {
     }
 
     private var mediaCard: some View {
-        VStack(spacing: 10) {
-            if let m = link.media {
+        let list = link.players
+        let m = list.first { $0.id == selectedPlayer } ?? list.first
+        return VStack(spacing: 10) {
+            if let m {
                 HStack(spacing: 12) {
                     Group {
                         if let a = m.art { Image(nsImage: a).resizable().scaledToFill() }
@@ -113,23 +116,28 @@ struct MenuView: View {
                     }.frame(width: 52, height: 52).background(.quaternary).clipShape(RoundedRectangle(cornerRadius: 8))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(m.title.isEmpty ? "Unknown" : m.title).font(.headline).lineLimit(1)
-                        Text([m.artist, m.app].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(m.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(m.app).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                     }
                     Spacer(minLength: 0)
-                }
-                if m.dur > 0 {
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                        let p = min(m.dur, m.pos + (m.playing ? ctx.date.timeIntervalSince(m.stamp) * m.speed : 0))
+                    if list.count > 1, let i = list.firstIndex(where: { $0.id == m.id }) { // switch between players like Android's media output
                         VStack(spacing: 2) {
-                            ProgressView(value: p, total: m.dur)
-                            HStack { Text(clock(p)); Spacer(); Text(clock(m.dur)) }.font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                            HStack(spacing: 6) {
+                                Button { selectedPlayer = list[(i + list.count - 1) % list.count].id } label: { Image(systemName: "chevron.left") }
+                                Text("\(i + 1)/\(list.count)").font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                                Button { selectedPlayer = list[(i + 1) % list.count].id } label: { Image(systemName: "chevron.right") }
+                            }.buttonStyle(.plain)
                         }
                     }
                 }
+                if m.dur > 0 { SeekBar(m: m) { t in
+                    link.mediaCmd("seek", pkg: m.id, pos: t)
+                    if let i = link.players.firstIndex(where: { $0.id == m.id }) { link.players[i].pos = t; link.players[i].stamp = Date() } // optimistic
+                } }
                 HStack(spacing: 22) {
-                    Button { link.mediaCmd("prev") } label: { Image(systemName: "backward.fill") }
-                    Button { link.mediaCmd(m.playing ? "pause" : "play") } label: { Image(systemName: m.playing ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 30)) }
-                    Button { link.mediaCmd("next") } label: { Image(systemName: "forward.fill") }
+                    Button { link.mediaCmd("prev", pkg: m.id) } label: { Image(systemName: "backward.fill") }
+                    Button { link.mediaCmd(m.playing ? "pause" : "play", pkg: m.id) } label: { Image(systemName: m.playing ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 30)) }
+                    Button { link.mediaCmd("next", pkg: m.id) } label: { Image(systemName: "forward.fill") }
                 }.buttonStyle(.plain).frame(maxWidth: .infinity)
             }
             HStack(spacing: 8) {
@@ -312,4 +320,23 @@ struct WelcomeView: View {
             Text(text).font(.callout)
         }
     }
+}
+
+/// Progress bar you can drag; seeks on release. Follows playback while idle.
+struct SeekBar: View {
+    let m: Link.Media
+    let seek: (Double) -> Void
+    @State private var drag: Double?
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            let p = min(m.dur, m.pos + (m.playing ? ctx.date.timeIntervalSince(m.stamp) * m.speed : 0))
+            VStack(spacing: 0) {
+                Slider(value: Binding(get: { drag ?? p }, set: { drag = $0 }), in: 0...m.dur) { editing in
+                    if !editing, let d = drag { seek(d); drag = nil }
+                }.controlSize(.small)
+                HStack { Text(clock(drag ?? p)); Spacer(); Text(clock(m.dur)) }.font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+            }
+        }
+    }
+    private func clock(_ t: Double) -> String { String(format: "%d:%02d", Int(t) / 60, Int(t) % 60) }
 }
