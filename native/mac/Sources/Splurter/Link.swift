@@ -196,7 +196,7 @@ final class Link: ObservableObject {
             let name = m["name"] as? String ?? "Phone"
             if k.pairing { trusted.insert(k.peer); token = Self.newToken() } // first authenticated frame: remember this phone
             DispatchQueue.main.async {
-                if k.pairing { self.devices.append(Device(id: k.peer, name: name)); Store.save(self.devices); self.pairing = false }
+                if k.pairing { self.devices.removeAll { $0.id == k.peer }; self.devices.append(Device(id: k.peer, name: name)); Store.save(self.devices); self.pairing = false }
                 self.connectedName = name
             }
             send(["t": "hello", "name": Host.current().localizedName ?? "Mac"])

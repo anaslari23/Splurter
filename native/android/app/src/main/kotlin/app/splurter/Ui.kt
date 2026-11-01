@@ -51,7 +51,7 @@ fun SplurterTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = if (isSystemInDarkTheme()) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx), content = content)
 }
 
-class Feature(val title: String, val desc: String, val icon: ImageVector, val granted: Boolean, val onAllow: () -> Unit)
+class Feature(val title: String, val desc: String, val icon: ImageVector, val granted: Boolean, val actionLabel: String = "Allow", val onAllow: () -> Unit)
 
 @Composable
 fun HomeScreen(
@@ -96,7 +96,7 @@ fun HomeScreen(
                             supportingContent = { Text(f.desc) },
                             trailingContent = {
                                 if (f.granted) Icon(Icons.Filled.Check, "Enabled", tint = MaterialTheme.colorScheme.primary)
-                                else FilledTonalButton(f.onAllow) { Text("Allow") }
+                                else FilledTonalButton(f.onAllow) { Text(f.actionLabel) }
                             },
                         )
                     }

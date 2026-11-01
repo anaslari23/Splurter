@@ -20,7 +20,8 @@ enum Store {
     }
 
     static func loadDevices() -> [Link.Device] {
-        (try? JSONDecoder().decode([Link.Device].self, from: Data(contentsOf: dir.appendingPathComponent("devices.json")))) ?? []
+        var seen = Set<String>() // re-pairing the same phone used to append a duplicate entry
+        return ((try? JSONDecoder().decode([Link.Device].self, from: Data(contentsOf: dir.appendingPathComponent("devices.json")))) ?? []).filter { seen.insert($0.id).inserted }
     }
 
     static func save(_ d: [Link.Device]) {
