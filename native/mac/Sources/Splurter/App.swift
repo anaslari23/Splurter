@@ -51,6 +51,14 @@ struct MenuView: View {
                     if let c = link.call { callCard(c) }
                     actions
                     if showDial { dialForm }
+                    if connected && link.call == nil { // exercises the audio bridge without needing a call
+                        HStack(spacing: 8) {
+                            Image(systemName: "waveform").foregroundStyle(.secondary)
+                            Text(audio.state == "live" ? "Phone mic level \(Int(audio.level * 100))%" : audio.state == "waiting" ? "Tap the notification on your phone" : "Audio test (no call needed)").font(.callout)
+                            Spacer()
+                            Button(audio.state == "off" ? "Start" : "Stop") { audio.state == "off" ? audio.start() : audio.stop() }
+                        }
+                    }
                     if let t = link.transfer { Label(t, systemImage: "arrow.up.arrow.down.circle").font(.caption).foregroundStyle(.secondary) }
                     activity
                 }
