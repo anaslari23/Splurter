@@ -20,7 +20,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         link = Link(this).also { l ->
-            l.onConnected = { NotifService.instance?.snapshot() }
+            l.onConnected = { NotifService.instance?.snapshot(); Phone.resync(this) }
             l.onBinary = { b -> if (b[0] == 1.toByte()) Files.onChunk(b) else if (b[0] == 3.toByte()) Audio.onFrame(b) }
             l.onMsg = { m ->
                 when (m.optString("t")) {

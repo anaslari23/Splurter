@@ -121,7 +121,11 @@ final class Link: ObservableObject {
 
     private func drop(_ k: Conn) {
         k.c.cancel()
-        if cur === k { incoming.values.forEach { try? $0.h.close() }; incoming = [:]; cur = nil; DispatchQueue.main.async { self.connectedName = nil } }
+        if cur === k {
+            incoming.values.forEach { try? $0.h.close() }; incoming = [:]; cur = nil
+            // A dropped link can swallow the phone's "call ended", so never keep showing a call across a disconnect.
+            DispatchQueue.main.async { self.connectedName = nil; self.call = nil; CallPanel.shared.update(nil) }
+        }
     }
 
     /// Frame type byte: 0 = JSON message, 1 = file chunk ([1][id:4 BE][data]). Must run on q (nonce order).
