@@ -42,7 +42,9 @@ class Link(private val ctx: Context) {
 
     @Volatile var state = if (prefs.contains("mac_key")) "Looking for Mac…" else "Not paired"; private set
     var onState: ((String) -> Unit)? = null
-    var onClip: ((String) -> Unit)? = null
+    var onMsg: ((JSONObject) -> Unit)? = null
+    var onConnected: (() -> Unit)? = null
+    private val tx = java.util.concurrent.Executors.newSingleThreadExecutor()
     val paired get() = prefs.contains("mac_key")
 
     private fun set(s: String) { state = s; onState?.invoke(s) }
@@ -72,10 +74,15 @@ class Link(private val ctx: Context) {
         prefs.edit().remove("mac_key").apply(); pendingToken = null; socket?.close(); set("Not paired")
     }
 
-    @Synchronized fun send(m: JSONObject) {
+    /** Thread-safe, non-blocking; frames go out in call order. */
+    fun send(m: JSONObject) { tx.execute { sendNow(m) } }
+
+    private fun sendNow(m: JSONObject) {
         val o = out ?: return
-        val ct = aead(Cipher.ENCRYPT_MODE, sendKey, sendN++, m.toString().toByteArray())
-        o.writeInt(ct.size); o.write(ct); o.flush()
+        try {
+            val ct = aead(Cipher.ENCRYPT_MODE, sendKey, sendN++, m.toString().toByteArray())
+            o.writeInt(ct.size); o.write(ct); o.flush()
+        } catch (e: Exception) { socket?.close() }
     }
 
     private fun wake() = synchronized(lock) { lock.notifyAll() }
@@ -110,7 +117,7 @@ class Link(private val ctx: Context) {
         val okm = hkdf(ikm, token ?: ByteArray(32), "splurter/v2".toByteArray(), 64)
         sendKey = okm.copyOfRange(0, 32); recvKey = okm.copyOfRange(32, 64); sendN = 0; recvN = 0
         out = dos
-        send(JSONObject().put("t", "hello").put("name", android.os.Build.MODEL))
+        sendNow(JSONObject().put("t", "hello").put("name", android.os.Build.MODEL))
 
         var ok = false
         try {
@@ -119,8 +126,8 @@ class Link(private val ctx: Context) {
                 val body = ByteArray(len).also { inp.readFully(it) }
                 val m = JSONObject(String(aead(Cipher.DECRYPT_MODE, recvKey, recvN++, body)))
                 when (m.optString("t")) {
-                    "hello" -> { ok = true; pendingToken = null; set("Connected to ${m.optString("name", "Mac")}") }
-                    "clip" -> onClip?.invoke(m.getString("text"))
+                    "hello" -> { ok = true; pendingToken = null; set("Connected to ${m.optString("name", "Mac")}"); onConnected?.invoke() }
+                    else -> onMsg?.invoke(m)
                 }
             }
         } catch (e: Exception) { if (!ok) throw e } finally { s.close() }

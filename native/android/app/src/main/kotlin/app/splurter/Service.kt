@@ -18,9 +18,16 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         link = Link(this).also { l ->
-            l.onClip = { t -> Handler(Looper.getMainLooper()).post {
-                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Mac", t))
-            } }
+            l.onConnected = { NotifService.instance?.snapshot() }
+            l.onMsg = { m ->
+                when (m.optString("t")) {
+                    "clip" -> Handler(Looper.getMainLooper()).post {
+                        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Mac", m.getString("text")))
+                    }
+                    "dismiss" -> NotifService.instance?.cancelNotification(m.getString("id"))
+                    "reply" -> NotifService.instance?.reply(m.getString("id"), m.getString("text"))
+                }
+            }
         }
     }
     companion object { lateinit var link: Link }

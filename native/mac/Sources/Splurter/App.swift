@@ -7,6 +7,7 @@ struct SplurterApp: App {
 
     init() {
         NSApplication.shared.setActivationPolicy(.accessory) // menu-bar only, no Dock icon
+        Notifier.shared.setup()
         Link.shared.start()
     }
 

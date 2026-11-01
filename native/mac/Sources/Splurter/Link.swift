@@ -50,6 +50,8 @@ final class Link: ObservableObject {
         Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.q.async { self?.send(["t": "ping"]) } }
     }
 
+    func sendMessage(_ o: [String: Any]) { q.async { self.send(o) } }
+
     func forget(_ id: String) {
         devices.removeAll { $0.id == id }; Store.save(devices)
         q.async { self.trusted.remove(id); if self.cur?.peer == id { self.drop(self.cur!) } }
@@ -141,6 +143,8 @@ final class Link: ObservableObject {
                 self.lastChange = NSPasteboard.general.changeCount
                 self.log(" ← \(text.prefix(40))")
             }
+        case "notif": DispatchQueue.main.async { Notifier.shared.show(m) }
+        case "notif_gone": if let id = m["id"] as? String { DispatchQueue.main.async { Notifier.shared.remove(id) } }
         default: break
         }
     }

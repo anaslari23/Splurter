@@ -35,6 +35,7 @@ class MainActivity : Activity() {
                 val t = getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() ?: return@btn
                 Thread { link.send(JSONObject().put("t", "clip").put("text", t)) }.start()
             })
+            addView(btn("Allow notification access") { startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
             addView(btn("Forget Mac") { link.forget() })
         })
     }
