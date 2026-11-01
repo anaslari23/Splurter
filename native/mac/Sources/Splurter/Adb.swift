@@ -20,6 +20,10 @@ final class Adb {
     func run(_ args: [String], timeout: TimeInterval = 15) -> (status: Int32, output: String) {
         guard let path else { return (-1, "adb not found") }
         let p = Process(); p.executableURL = URL(fileURLWithPath: path); p.arguments = args
+        // Developer hook: SPLURTER_ADB_HOME gives adb a throwaway identity and its own server (used to test first-time pairing
+        // without revoking this Mac's real trust on the phone).
+        var env = ProcessInfo.processInfo.environment
+        if let h = env["SPLURTER_ADB_HOME"] { env["HOME"] = h; env["ANDROID_ADB_SERVER_PORT"] = env["SPLURTER_ADB_PORT"] ?? "5038"; p.environment = env }
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
         do { try p.run() } catch { return (-1, "\(error)") }
         var data = Data(); let done = DispatchSemaphore(value: 0)

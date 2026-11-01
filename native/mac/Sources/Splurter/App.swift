@@ -203,6 +203,8 @@ struct MenuView: View {
                 set: { on in try? (on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()) }))
                 .toggleStyle(.switch).controlSize(.small)
             Spacer()
+            Button("Call audio setup…") { openWindow(id: "callaudio"); NSApp.activate(ignoringOtherApps: true) }.buttonStyle(.plain).foregroundStyle(.secondary)
+            Text("·").foregroundStyle(.tertiary)
             Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.plain).foregroundStyle(.secondary)
         }.font(.caption)
     }
