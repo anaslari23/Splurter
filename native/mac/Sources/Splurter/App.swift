@@ -52,6 +52,7 @@ struct MenuView: View {
                     emptyState
                 } else {
                     if let c = link.call { callCard(c) }
+                    if connected { mediaCard }
                     actions
                     if showDial { dialForm }
                     if let t = link.transfer { Label(t, systemImage: "arrow.up.arrow.down.circle").font(.caption).foregroundStyle(.secondary) }
@@ -101,6 +102,46 @@ struct MenuView: View {
             Button("Pair a phone") { openPairing() }.buttonStyle(.borderedProminent).controlSize(.large)
         }.frame(maxWidth: .infinity).padding(.vertical, 8)
     }
+
+    private var mediaCard: some View {
+        VStack(spacing: 10) {
+            if let m = link.media {
+                HStack(spacing: 12) {
+                    Group {
+                        if let a = m.art { Image(nsImage: a).resizable().scaledToFill() }
+                        else { Image(systemName: "music.note").foregroundStyle(.secondary) }
+                    }.frame(width: 52, height: 52).background(.quaternary).clipShape(RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(m.title.isEmpty ? "Unknown" : m.title).font(.headline).lineLimit(1)
+                        Text([m.artist, m.app].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                if m.dur > 0 {
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        let p = min(m.dur, m.pos + (m.playing ? ctx.date.timeIntervalSince(m.stamp) * m.speed : 0))
+                        VStack(spacing: 2) {
+                            ProgressView(value: p, total: m.dur)
+                            HStack { Text(clock(p)); Spacer(); Text(clock(m.dur)) }.font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                        }
+                    }
+                }
+                HStack(spacing: 22) {
+                    Button { link.mediaCmd("prev") } label: { Image(systemName: "backward.fill") }
+                    Button { link.mediaCmd(m.playing ? "pause" : "play") } label: { Image(systemName: m.playing ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 30)) }
+                    Button { link.mediaCmd("next") } label: { Image(systemName: "forward.fill") }
+                }.buttonStyle(.plain).frame(maxWidth: .infinity)
+            }
+            HStack(spacing: 8) {
+                Image(systemName: link.volume == 0 ? "speaker.slash.fill" : "speaker.fill").foregroundStyle(.secondary).frame(width: 16)
+                Slider(value: Binding(get: { link.volume }, set: { link.setVolume($0) }), in: 0...1)
+                Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+            }.font(.caption)
+        }
+        .padding(12).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func clock(_ t: Double) -> String { String(format: "%d:%02d", Int(t) / 60, Int(t) % 60) }
 
     private func callCard(_ c: Link.Call) -> some View {
         let who = c.name.isEmpty ? c.number : c.name

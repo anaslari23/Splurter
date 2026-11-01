@@ -27,6 +27,16 @@ final class Link: ObservableObject {
     struct Call { var state: String; var number: String; var name: String }
     @Published var call: Call?
     @Published var transfer: String?
+    struct Media { var title: String; var artist: String; var app: String; var playing: Bool; var dur: Double; var pos: Double; var speed: Double; var stamp = Date(); var art: NSImage? }
+    @Published var media: Media?
+    @Published var volume: Double = 0.5 // 0...1, the phone's music volume
+    private var volumeSetAt = Date.distantPast
+    func setVolume(_ v: Double) { volume = v; volumeSetAt = Date(); sendMessage(["t": "volume_set", "level": v]) }
+    func mediaCmd(_ cmd: String, pos: Double? = nil) {
+        var m: [String: Any] = ["t": "media_cmd", "cmd": cmd]; if let pos { m["pos"] = Int(pos * 1000) }
+        sendMessage(m)
+        if cmd == "play" || cmd == "pause" { media?.playing = cmd == "play"; media?.stamp = Date() } // optimistic; the phone confirms
+    }
     private var incoming: [UInt32: (h: FileHandle, url: URL)] = [:]
 
     private let q = DispatchQueue(label: "link")
@@ -215,6 +225,19 @@ final class Link: ObservableObject {
                 CallPanel.shared.update(self.call)
                 CallAudio.shared.callChanged(c.state)
                 Notifier.shared.call(c)
+            }
+        case "media":
+            DispatchQueue.main.async {
+                guard m["active"] as? Bool == true else { self.media = nil; return }
+                var x = Media(title: m["title"] as? String ?? "", artist: m["artist"] as? String ?? "", app: m["app"] as? String ?? "",
+                              playing: m["playing"] as? Bool ?? false, dur: (m["dur"] as? Double ?? 0) / 1000, pos: (m["pos"] as? Double ?? 0) / 1000,
+                              speed: m["speed"] as? Double ?? 1, art: self.media?.art)
+                if let a = m["art"] as? String { x.art = Data(base64Encoded: a).flatMap(NSImage.init(data:)) } // sent only when the track changes
+                self.media = x
+            }
+        case "volume":
+            if let l = m["level"] as? Double, let mx = m["max"] as? Double, mx > 0 {
+                DispatchQueue.main.async { if Date().timeIntervalSince(self.volumeSetAt) > 0.6 { self.volume = l / mx } } // ignore echoes of our own drag
             }
         case "sms_sent": DispatchQueue.main.async { self.log("message.fill", "Text sent to \(m["to"] ?? "?")") }
         case "mirror_info":

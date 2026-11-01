@@ -14,6 +14,7 @@ directly over your Wi-Fi, end-to-end encrypted. No account and no cloud.</p>
 |---|---|---|
 | **Pairing** | One QR scan, then it reconnects by itself (Bonjour discovery; verified across app restarts and a phone reboot). | ✅ |
 | **Clipboard** | Copy on the Mac and paste on the phone. Phone to Mac with a button or the share sheet. | ✅ ¹ |
+| **Media & volume** | Now-playing card on the Mac with album art, play/pause/next/previous and a volume slider that follows the phone's volume keys. | ✅ |
 | **Notifications** | Phone notifications appear as native Mac banners with the app's icon. Dismiss on the Mac clears them on the phone. Reply from the banner for apps that offer inline reply. | ✅ ² |
 | **Calls** | Incoming-call popup on the Mac with the caller's name and Answer or Decline. Dial from the Mac. | ✅ |
 | **Texts** | Send an SMS from the Mac. Incoming texts arrive as notifications. | ✅ |

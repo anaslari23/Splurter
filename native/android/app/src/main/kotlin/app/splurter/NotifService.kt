@@ -14,7 +14,7 @@ import org.json.JSONObject
 
 /** Mirrors phone notifications to the Mac and executes dismiss/reply coming back. */
 class NotifService : NotificationListenerService() {
-    override fun onListenerConnected() { instance = this; snapshot() }
+    override fun onListenerConnected() { instance = this; snapshot(); Media.start(android.content.ComponentName(this, NotifService::class.java)) }
     override fun onListenerDisconnected() { if (instance === this) instance = null }
     override fun onNotificationPosted(sbn: StatusBarNotification) = push(sbn, sync = false)
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

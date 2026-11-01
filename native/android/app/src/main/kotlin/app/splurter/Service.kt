@@ -19,8 +19,9 @@ import android.telephony.TelephonyManager
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        Media.init(this)
         link = Link(this).also { l ->
-            l.onConnected = { NotifService.instance?.snapshot(); Phone.resync(this) }
+            l.onConnected = { NotifService.instance?.snapshot(); Phone.resync(this); Media.resync() }
             l.onBinary = { b -> if (b[0] == 1.toByte()) Files.onChunk(b) }
             l.onMsg = { m ->
                 when (m.optString("t")) {
@@ -30,6 +31,7 @@ class App : Application() {
                     "dismiss" -> NotifService.instance?.cancelNotification(m.getString("id"))
                     "reply" -> NotifService.instance?.reply(m.getString("id"), m.getString("text"))
                     "tap", "swipe", "key", "text" -> ControlService.instance?.handle(m)
+                    "media_cmd", "volume_set" -> Media.handle(m)
                     "mirror_start" -> Mirror.request(this)
                     "mirror_stop" -> MirrorService.instance?.stopSelf()
                     "file", "file_end" -> Files.onJson(this, m)
