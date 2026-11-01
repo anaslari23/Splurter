@@ -25,3 +25,9 @@ cat > $A/Contents/Info.plist <<PL
 PL
 codesign --force -s - $A
 echo "built $PWD/$A"
+if [ "$1" = "--install" ]; then
+  pkill -x Splurter || true; sleep 1
+  rm -rf /Applications/Splurter.app && ditto $A /Applications/Splurter.app
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Splurter.app
+  echo "installed /Applications/Splurter.app"
+fi
