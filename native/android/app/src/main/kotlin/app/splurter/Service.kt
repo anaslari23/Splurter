@@ -1,0 +1,46 @@
+package app.splurter
+
+import android.app.Application
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Handler
+import android.os.Looper
+
+class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        link = Link(this).also { l ->
+            l.onClip = { t -> Handler(Looper.getMainLooper()).post {
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Mac", t))
+            } }
+        }
+    }
+    companion object { lateinit var link: Link }
+}
+
+/** Keeps the link alive (and reconnecting) with the UI closed. */
+class LinkService : Service() {
+    override fun onCreate() {
+        super.onCreate()
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel("link", "Mac connection", NotificationManager.IMPORTANCE_MIN))
+        val n = Notification.Builder(this, "link").setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setContentTitle("Splurter").setContentText("Connected to your Mac in the background").build()
+        startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        App.link.start()
+    }
+    override fun onStartCommand(i: Intent?, f: Int, id: Int) = START_STICKY
+    override fun onBind(i: Intent?) = null
+}
+
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(c: Context, i: Intent) { c.startForegroundService(Intent(c, LinkService::class.java)) }
+}
