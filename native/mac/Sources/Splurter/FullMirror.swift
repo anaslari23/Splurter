@@ -242,6 +242,8 @@ final class FullMirror: ObservableObject {
             off += n
         }
     }
+    /// Joins byte chunks (kept as separate small expressions: one long `+` chain can exhaust the Swift type-checker on older Xcodes).
+    private static func pack(_ parts: [[UInt8]]) -> [UInt8] { parts.flatMap { $0 } }
     private static func be(_ v: Int, _ n: Int) -> [UInt8] { (0..<n).map { UInt8(truncatingIfNeeded: v >> (8 * (n - 1 - $0))) } }
 
     /// action: 0 down, 1 up, 2 move. x/y are 0...1 of the video frame.
@@ -278,18 +280,22 @@ final class FullMirror: ObservableObject {
     /// mouse clicks and don't scroll on a mouse drag. Real touch works everywhere.
     private func sendTouch(_ action: UInt8, _ x: Double, _ y: Double) {
         let px = Int(min(max(x, 0), 1) * Double(frame.w - 1)), py = Int(min(max(y, 0), 1) * Double(frame.h - 1))
-        write([2, action] + Self.be(-2, 8) + Self.be(px, 4) + Self.be(py, 4) + Self.be(frame.w, 2) + Self.be(frame.h, 2)
-              + Self.be(action == 1 ? 0 : 0xffff, 2) + Self.be(0, 4) + Self.be(0, 4))
+        let pressure = action == 1 ? 0 : 0xffff
+        write(Self.pack([[2, action], Self.be(-2, 8), Self.be(px, 4), Self.be(py, 4), Self.be(frame.w, 2), Self.be(frame.h, 2),
+                         Self.be(pressure, 2), Self.be(0, 4), Self.be(0, 4)]))
     }
 
     func scroll(_ x: Double, _ y: Double, dy: Double) {
         let px = Int(x * Double(frame.w - 1)), py = Int(y * Double(frame.h - 1))
-        send([3] + Self.be(px, 4) + Self.be(py, 4) + Self.be(frame.w, 2) + Self.be(frame.h, 2) + Self.be(0, 2)
-             + Self.be(Int(max(-1, min(1, dy / 16)) * 32767), 2) + Self.be(0, 4))
+        let amount = Int(max(-1, min(1, dy / 16)) * 32767)
+        send(Self.pack([[3], Self.be(px, 4), Self.be(py, 4), Self.be(frame.w, 2), Self.be(frame.h, 2), Self.be(0, 2), Self.be(amount, 2), Self.be(0, 4)]))
     }
 
-    func key(_ code: Int) { send([0, 0] + Self.be(code, 4) + Self.be(0, 4) + Self.be(0, 4)); send([0, 1] + Self.be(code, 4) + Self.be(0, 4) + Self.be(0, 4)); lastInput = Date() }
-    func text(_ s: String) { let b = Array(s.utf8); send([1] + Self.be(b.count, 4) + b); lastInput = Date() }
+    func key(_ code: Int) {
+        for action: UInt8 in [0, 1] { send(Self.pack([[0, action], Self.be(code, 4), Self.be(0, 4), Self.be(0, 4)])) }
+        lastInput = Date()
+    }
+    func text(_ s: String) { let b = Array(s.utf8); send(Self.pack([[1], Self.be(b.count, 4), b])); lastInput = Date() }
     static let home = 3, back = 4, recents = 187, power = 26, wakeup = 224, enter = 66, del = 67
 
     func back() { log("back"); key(Self.back) }
