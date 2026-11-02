@@ -5,7 +5,7 @@
 # VERSION=0.3.0 sh package.sh
 set -e; cd "$(dirname "$0")"
 V="${VERSION:-0.2}"; export VERSION="$V"
-export JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"
+. ./find_java.sh
 rm -rf release
 sh ./package_mac.sh
 
