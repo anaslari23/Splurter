@@ -1,0 +1,107 @@
+name: Release
+# Push a tag like v0.3.0 (or run this workflow by hand with a version) to build the Android APK and the Mac .dmg and .pkg,
+# stamp the source with RepoMark, and publish everything as a GitHub release.
+on:
+  push: { tags: ['v*'] }
+  workflow_dispatch:
+    inputs:
+      version: { description: 'Version to release, e.g. 0.3.0', required: true }
+permissions: { contents: read }
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs: { v: '${{ steps.v.outputs.v }}', code: '${{ steps.v.outputs.code }}' }
+    steps:
+      - id: v
+        run: |
+          RAW="${{ inputs.version || github.ref_name }}"; V="${RAW#v}"
+          echo "v=$V" >> "$GITHUB_OUTPUT"
+          echo "code=$((100 + ${{ github.run_number }}))" >> "$GITHUB_OUTPUT" # Android versionCode: must only ever go up
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Signing key (only if the repo has the secrets; otherwise the APK is debug-signed)
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > native/android/splurter-release.jks
+            printf 'storeFile=splurter-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$KS_PASS" "$KEY_ALIAS" "${KEY_PASS:-$KS_PASS}" > native/android/keystore.properties
+            echo "SIGNED=release" >> "$GITHUB_ENV"
+          else
+            echo "SIGNED=debug" >> "$GITHUB_ENV"
+          fi
+      - name: Build APK
+        working-directory: native/android
+        run: ./gradlew :app:assembleRelease --no-daemon -Pver=${{ needs.version.outputs.v }} -Pvcode=${{ needs.version.outputs.code }}
+      - name: Name the APK
+        run: |
+          mkdir dist
+          SUFFIX=""; [ "$SIGNED" = debug ] && SUFFIX="-debug-signed"
+          cp native/android/app/build/outputs/apk/release/app-release.apk "dist/Splurter-${{ needs.version.outputs.v }}$SUFFIX.apk"
+      - uses: actions/upload-artifact@v4
+        with: { name: android, path: dist/* }
+
+  mac:
+    needs: version
+    runs-on: macos-15-intel # Apple Silicon runners are often queued for a long time; the app is built universal (arm64 + x86_64) anyway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Build .dmg and .pkg
+        env: { VERSION: '${{ needs.version.outputs.v }}', UNIVERSAL: '1' }
+        run: sh native/package_mac.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: mac, path: 'native/release/Splurter-*' }
+
+  # The RepoMark stamp: seals a clean export of this commit's source (signed Merkle tree) and adds a Sigstore attestation.
+  seal:
+    needs: version
+    permissions: { contents: read, id-token: write, attestations: write }
+    uses: anaslari23/RepoMark/.github/workflows/seal.yml@main
+
+  publish:
+    needs: [version, android, mac, seal]
+    runs-on: ubuntu-latest
+    permissions: { contents: write, id-token: write, attestations: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Collect files
+        run: |
+          V="${{ needs.version.outputs.v }}"
+          mv dist/sealed.zip "dist/Splurter-$V-repomark-sealed-source.zip"
+          cd dist && sha256sum Splurter-* > SHA256SUMS.txt && ls -la
+      - name: Provenance for the installers
+        uses: actions/attest-build-provenance@v2
+        with: { subject-path: 'dist/Splurter-*' }
+      - name: Publish the GitHub release
+        env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
+        run: |
+          V="${{ needs.version.outputs.v }}"
+          cat > notes.md <<NOTES
+          ## Splurter $V
+
+          | Download | For |
+          | --- | --- |
+          | \`Splurter-$V.dmg\` / \`Splurter-$V.pkg\` | Mac (macOS 15 or newer). The app is not notarized yet: right-click, **Open** the first time. |
+          | \`Splurter-$V*.apk\` | Android 13 or newer. Allow installing from this source, then open it and scan the QR code shown by the Mac. |
+          | \`SHA256SUMS.txt\` | Checksums of every download. |
+          | \`Splurter-$V-repomark-sealed-source.zip\` | The source of this exact commit, sealed with [RepoMark](https://github.com/anaslari23/RepoMark). |
+
+          Check where a file came from: \`gh attestation verify <file> -R ${GH_REPO}\`.
+          Call audio on the Mac and the phone window need Wireless debugging (one-time setup); everything else works without it.
+          NOTES
+          if ! ls dist/*.apk | grep -q debug-signed; then :; else printf '\n> This APK is signed with the debug key because no release key is configured on the repository. It will not update in place once a release-signed build is published.\n' >> notes.md; fi
+          gh release create "v$V" dist/* --title "Splurter $V" --notes-file notes.md --generate-notes --target "${{ github.sha }}" $( [ "${V#*-}" != "$V" ] && echo --prerelease )

@@ -103,6 +103,14 @@ native/
 docs/         protocol and project docs
 ```
 
+## Releases
+
+Pushing a tag such as `v0.3.0` (or running the **Release** workflow by hand) builds everything on GitHub and publishes a release with:
+the Android `.apk`, the Mac `.dmg` and `.pkg`, `SHA256SUMS.txt`, and a source archive sealed with [RepoMark](https://github.com/anaslari23/RepoMark) (verify with `gh attestation verify <file> -R anaslari23/Splurter`).
+The Mac app is ad-hoc signed and not notarized, so the first launch needs a right-click, **Open**. To sign the APK with the release key, add the repository secrets
+`ANDROID_KEYSTORE_B64` (the `.jks`, base64), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and, if different, `ANDROID_KEY_PASSWORD`; without them the APK is debug-signed and says so in its name.
+Build the same files locally with `VERSION=0.3.0 sh native/package.sh`.
+
 ## Known limits
 
 - **Call audio (beta).** It needs Wireless debugging, which Android can switch off by itself (after a Wi-Fi change or a reboot); the app restarts adb once and retries, then asks you to turn it back on. It has only been tested on one phone (Pixel 9a, Android 17), and other makers' builds may differ. No echo cancellation, so use headphones. Bluetooth routes were also tried and do not work on macOS: it refuses hands-free call audio, and its Bluetooth controller rejects the connection timing Android's hearing-aid protocol demands.
