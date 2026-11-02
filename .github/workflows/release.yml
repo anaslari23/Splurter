@@ -1,6 +1,6 @@
 name: Release
-# Push a tag like v0.3.0 (or run this workflow by hand with a version) to build the Android APK and the Mac .dmg and .pkg,
-# stamp the source with RepoMark, and publish everything as a GitHub release.
+# Push a tag like v0.3.0 (or run this workflow by hand with a version) to build the Android APK and the Mac .dmg and .pkg
+# and publish them as a GitHub release.
 on:
   push: { tags: ['v*'] }
   workflow_dispatch:
@@ -68,14 +68,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: mac, path: 'native/release/Splurter-*' }
 
-  # The RepoMark stamp: seals a clean export of this commit's source (signed Merkle tree) and adds a Sigstore attestation.
-  seal:
-    needs: version
-    permissions: { contents: read, id-token: write, attestations: write }
-    uses: anaslari23/RepoMark/.github/workflows/seal.yml@main
-
   publish:
-    needs: [version, android, mac, seal]
+    needs: [version, android, mac]
     runs-on: ubuntu-latest
     permissions: { contents: write, id-token: write, attestations: write }
     steps:
@@ -83,9 +77,7 @@ jobs:
         with: { path: dist, merge-multiple: true }
       - name: Collect files
         run: |
-          V="${{ needs.version.outputs.v }}"
-          mv dist/sealed.zip "dist/Splurter-$V-repomark-sealed-source.zip"
-          cd dist && sha256sum Splurter-* > SHA256SUMS.txt && ls -la
+          ls -la dist
       - name: Provenance for the installers
         uses: actions/attest-build-provenance@v2
         with: { subject-path: 'dist/Splurter-*' }
@@ -100,8 +92,6 @@ jobs:
           | --- | --- |
           | \`Splurter-$V.dmg\` / \`Splurter-$V.pkg\` | Mac (macOS 15 or newer). The app is not notarized yet: right-click, **Open** the first time. |
           | \`Splurter-$V*.apk\` | Android 13 or newer. Allow installing from this source, then open it and scan the QR code shown by the Mac. |
-          | \`SHA256SUMS.txt\` | Checksums of every download. |
-          | \`Splurter-$V-repomark-sealed-source.zip\` | The source of this exact commit, sealed with [RepoMark](https://github.com/anaslari23/RepoMark). |
 
           Check where a file came from: \`gh attestation verify <file> -R ${GH_REPO}\`.
           Call audio on the Mac and the phone window need Wireless debugging (one-time setup); everything else works without it.
