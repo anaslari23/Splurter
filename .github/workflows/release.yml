@@ -1,6 +1,6 @@
 name: Release
-# Push a tag like v0.3.0 (or run this workflow by hand with a version) to build the Android APK and the Mac .dmg and .pkg,
-# stamp the source with RepoMark, and publish everything as a GitHub release.
+# Push a tag like v0.3.0 (or run this workflow by hand with a version) to build the Android APK and the Mac .dmg and .pkg
+# and publish them as a GitHub release.
 on:
   push: { tags: ['v*'] }
   workflow_dispatch:
@@ -68,31 +68,19 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: mac, path: 'native/release/Splurter-*' }
 
-  # The RepoMark stamp: seals a clean export of this commit's source (signed Merkle tree) and adds a Sigstore attestation.
-  seal:
-    needs: version
-    permissions: { contents: read, id-token: write, attestations: write }
-    uses: anaslari23/RepoMark/.github/workflows/seal.yml@main
-
   publish:
-    needs: [version, android, mac, seal]
+    needs: [version, android, mac]
     runs-on: ubuntu-latest
-    permissions: { contents: write, id-token: write, attestations: write, actions: write }
+    permissions: { contents: write, id-token: write, attestations: write }
     steps:
       - uses: actions/download-artifact@v4
         with: { path: dist, merge-multiple: true }
       - name: Collect files
         run: |
-          rm -f dist/sealed.zip  # the RepoMark seal is kept private: only the installers are published (the seal and its attestation still exist)
           ls -la dist
       - name: Provenance for the installers
         uses: actions/attest-build-provenance@v2
         with: { subject-path: 'dist/Splurter-*' }
-      - name: Remove the sealed-source artifact from the run page
-        env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
-        run: |
-          ID=$(gh api "repos/$GH_REPO/actions/runs/${{ github.run_id }}/artifacts" -q '.artifacts[] | select(.name=="repomark-sealed-source") | .id')
-          [ -z "$ID" ] || gh api -X DELETE "repos/$GH_REPO/actions/artifacts/$ID"
       - name: Publish the GitHub release
         env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
         run: |
