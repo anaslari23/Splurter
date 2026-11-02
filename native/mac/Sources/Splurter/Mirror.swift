@@ -12,6 +12,9 @@ final class Mirror: ObservableObject {
 
     private init() { layer.videoGravity = .resizeAspect }
 
+    /// Forgets the last picture, so a new session doesn't start on a stale frame from the previous one.
+    func reset() { format = nil; DispatchQueue.main.async { self.layer.sampleBufferRenderer.flush(removingDisplayedImage: true) } }
+
     func feed(_ d: Data) { // called on the link queue
         guard d.count > 2 else { return }
         let nals = Self.nalUnits(Data(d.dropFirst(2)))

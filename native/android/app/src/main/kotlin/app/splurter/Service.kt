@@ -32,6 +32,7 @@ class App : Application() {
                     "reply" -> NotifService.instance?.reply(m.getString("id"), m.getString("text"))
                     "tap", "swipe", "key", "text" -> ControlService.instance?.handle(m)
                     "media_cmd", "volume_set" -> Media.handle(m)
+                    "apps_req" -> Thread { Apps.send(this, m.optJSONArray("have")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: emptySet()) }.start()
                     "mirror_start" -> Mirror.request(this)
                     "mirror_stop" -> MirrorService.instance?.stopSelf()
                     "file", "file_end" -> Files.onJson(this, m)
