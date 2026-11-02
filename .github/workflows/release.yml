@@ -54,13 +54,13 @@ jobs:
 
   mac:
     needs: version
-    runs-on: macos-15
+    runs-on: macos-15-intel # Apple Silicon runners are often queued for a long time; the app is built universal (arm64 + x86_64) anyway
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - name: Build .dmg and .pkg
-        env: { VERSION: '${{ needs.version.outputs.v }}' }
+        env: { VERSION: '${{ needs.version.outputs.v }}', UNIVERSAL: '1' }
         run: sh native/package_mac.sh
       - uses: actions/upload-artifact@v4
         with: { name: mac, path: 'native/release/Splurter-*' }

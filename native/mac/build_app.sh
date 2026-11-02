@@ -4,10 +4,13 @@ set -e; cd "$(dirname "$0")"
 # Call-audio helper (phone side) + scrcpy's server jar (checksum-verified), bundled as resources.
 ../callbridge/build_helper.sh
 [ -f ../callbridge/scrcpy-server.jar ] || ../callbridge/fetch_scrcpy_server.sh
-swift build -c release
+# UNIVERSAL=1 builds a fat arm64 + x86_64 binary (what releases ship; also lets an Intel CI runner produce Apple Silicon code).
+ARCHS=""; [ -n "$UNIVERSAL" ] && ARCHS="--arch arm64 --arch x86_64"
+swift build -c release $ARCHS
+BIN="$(swift build -c release $ARCHS --show-bin-path)/Splurter"
 A=Splurter.app; rm -rf $A; mkdir -p $A/Contents/MacOS
 mkdir -p $A/Contents/Resources
-cp .build/release/Splurter $A/Contents/MacOS/
+cp "$BIN" $A/Contents/MacOS/
 cp ../icons/AppIcon.icns $A/Contents/Resources/
 cp ../callbridge/helper/bridge.dex ../callbridge/scrcpy-server.jar ../callbridge/THIRD_PARTY_NOTICES.txt $A/Contents/Resources/
 cat > $A/Contents/Info.plist <<PL
