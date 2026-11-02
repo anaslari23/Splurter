@@ -19,7 +19,8 @@ cat > $A/Contents/Info.plist <<PL
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleExecutable</key><string>Splurter</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2</string>
+<key>CFBundleShortVersionString</key><string>${VERSION:-0.2}</string>
+<key>CFBundleVersion</key><string>${VERSION:-0.2}</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>LSUIElement</key><true/>
 <key>NSLocalNetworkUsageDescription</key><string>Splurter talks directly to your phone on your Wi-Fi.</string>
