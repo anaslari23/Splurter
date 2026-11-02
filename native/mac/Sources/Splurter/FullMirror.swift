@@ -88,7 +88,7 @@ final class FullMirror: ObservableObject {
         // Retina display) and renders ~2x cheaper than the phone's full 1080. The dpi is scaled to match, so apps lay out as on the phone.
         let ownW = 720, ownH = Int((720 * sh.h / sh.w).rounded()) / 2 * 2, ownDpi = 280
         let p = Process(); p.executableURL = URL(fileURLWithPath: adb.path!)
-        p.arguments = ["-s", s, "shell", "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 5.0.1 scid=\(scid) log_level=info tunnel_forward=true audio=false control=true cleanup=false max_size=1920 video_bit_rate=\(mode == .own ? 8_000_000 : 16_000_000) max_fps=\(mode == .own ? 60 : 120) video_codec_options=i-frame-interval:int=2,bitrate-mode:int=2,latency:int=1,priority:int=0" + (mode == .own ? " new_display=\(ownW)x\(ownH)/\(ownDpi) vd_system_decorations=false" : "")]
+        p.arguments = ["-s", s, "shell", "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 5.0.1 scid=\(scid) log_level=info tunnel_forward=true audio=false control=true cleanup=false max_size=1920 video_bit_rate=\(mode == .own ? 8_000_000 : 16_000_000) max_fps=\(mode == .own ? 60 : 120) \(UserDefaults.standard.string(forKey: "mirrorOpts") ?? "video_codec_options=i-frame-interval:int=2,bitrate-mode:int=2,latency:int=1,priority:int=0")" + (mode == .own ? " new_display=\(ownW)x\(ownH)/\(ownDpi) vd_system_decorations=false" : "")]
         let out = Pipe(); p.standardOutput = out; p.standardError = out
         let up = DispatchSemaphore(value: 0)
         out.fileHandleForReading.readabilityHandler = { h in
@@ -115,7 +115,7 @@ final class FullMirror: ObservableObject {
     /// Pressing the power button again (it falls asleep once more) hands the phone back: panel on, normal behaviour.
     private func watchWakefulness(_ s: String, _ g: Int) {
         DispatchQueue.global().async {
-            let adb = Adb.shared; var last = "", quietUntil = Date.distantPast
+            let adb = Adb.shared; var last = "", quietUntil = Date.distantPast, renewed = Date()
             while g == self.gen {
                 let w = adb.run(["-s", s, "shell", "dumpsys power | grep -m1 mWakefulness="], timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
                 if w != last { self.log("phone \(w)") }
@@ -125,6 +125,7 @@ final class FullMirror: ObservableObject {
                     quietUntil = Date().addingTimeInterval(2.5)
                 }
                 last = w
+                if self.holding, Date().timeIntervalSince(renewed) > 20 { Link.shared.sendMessage(["t": "awake", "on": true]); renewed = Date() }
                 Thread.sleep(forTimeInterval: 0.7)
             }
         }
@@ -133,15 +134,14 @@ final class FullMirror: ObservableObject {
     private func hold(_ s: String) {
         log("phone locked: holding it awake, panel off")
         holding = true
-        let orig = Adb.shared.run(["-s", s, "shell", "settings get system screen_off_timeout"]).output.trimmingCharacters(in: .whitespacesAndNewlines)
-        if Int(orig) != nil, Int(orig)! < 1_000_000_000 { UserDefaults.standard.set(orig, forKey: "origScreenTimeout") } // restored on release, session end, or next start
-        Adb.shared.run(["-s", s, "shell", "settings put system screen_off_timeout 2147483647; input keyevent KEYCODE_WAKEUP"])
+        Link.shared.sendMessage(["t": "awake", "on": true]) // the phone app takes a screen wake lock; it expires in a minute unless renewed
+        Adb.shared.run(["-s", s, "shell", "input keyevent KEYCODE_WAKEUP"])
         send([10, 0])
     }
 
     private func release(_ s: String) {
         log("power button again: giving the phone back")
-        holding = false; send([10, 1]); restoreTimeout(s)
+        holding = false; send([10, 1]); Link.shared.sendMessage(["t": "awake", "on": false]); restoreTimeout(s)
         Adb.shared.run(["-s", s, "shell", "input keyevent KEYCODE_WAKEUP"])
     }
 
@@ -201,7 +201,7 @@ final class FullMirror: ObservableObject {
     }
 
     private func teardown() {
-        if holding, cfd >= 0 { var on: [UInt8] = [10, 1]; _ = write(cfd, &on, 2); Thread.sleep(forTimeInterval: 0.15) } // panel back on before the helper goes
+        if holding, cfd >= 0 { var on: [UInt8] = [10, 1]; _ = Darwin.write(cfd, &on, 2); Thread.sleep(forTimeInterval: 0.15); Link.shared.sendMessage(["t": "awake", "on": false]) } // panel back on before the helper goes
         if holding || UserDefaults.standard.string(forKey: "origScreenTimeout") != nil, let s = serial { restoreTimeout(s) }
         holding = false
         for f in [vfd, cfd] where f >= 0 { shutdown(f, SHUT_RDWR); close(f) }
@@ -233,27 +233,53 @@ final class FullMirror: ObservableObject {
     // MARK: input (control socket, scrcpy message types)
 
     /// One message per call, written whole: a short write would desync scrcpy's message stream and freeze all input.
-    private func send(_ bytes: [UInt8]) {
-        ctl.async {
-            var off = 0
-            while off < bytes.count, self.cfd >= 0 {
-                let n = bytes.withUnsafeBytes { write(self.cfd, $0.baseAddress! + off, bytes.count - off) }
-                if n <= 0 { if n < 0, errno == EINTR || errno == EAGAIN { continue }; return }
-                off += n
-            }
+    private func send(_ bytes: [UInt8]) { ctl.async { self.write(bytes) } }
+    private func write(_ bytes: [UInt8]) { // on `ctl`
+        var off = 0
+        while off < bytes.count, cfd >= 0 {
+            let n = bytes.withUnsafeBytes { Darwin.write(cfd, $0.baseAddress! + off, bytes.count - off) }
+            if n <= 0 { if n < 0, errno == EINTR || errno == EAGAIN { continue }; return }
+            off += n
         }
     }
     private static func be(_ v: Int, _ n: Int) -> [UInt8] { (0..<n).map { UInt8(truncatingIfNeeded: v >> (8 * (n - 1 - $0))) } }
 
     /// action: 0 down, 1 up, 2 move. x/y are 0...1 of the video frame.
+    /// Moves are resampled: the Mac's mouse/trackpad events arrive in uneven bursts, so the finger is eased toward the latest position
+    /// on a steady 125 Hz clock. The phone then sees an even stream, which is what makes its scrolling and flings look smooth.
     func touch(_ action: UInt8, _ x: Double, _ y: Double) {
         guard cfd >= 0, frame.w > 0, frame.h > 0 else { return } // not connected yet: a click then must not count as "using the phone"
         if action == 0, mode == .mirror { wakeIfIdle() }
+        ctl.async {
+            switch action {
+            case 0: self.fingerTarget = (x, y); self.fingerPos = (x, y); self.fingerDown = true; self.sendTouch(0, x, y); self.startPacer()
+            case 2: self.fingerTarget = (x, y)
+            default: // up: land exactly where the user let go
+                self.fingerDown = false; self.pacer?.cancel(); self.pacer = nil; self.sendTouch(2, x, y); self.sendTouch(1, x, y)
+            }
+        }
+    }
+
+    private var fingerPos = (0.0, 0.0), fingerTarget = (0.0, 0.0), fingerDown = false, pacer: DispatchSourceTimer?
+    private func startPacer() {
+        pacer?.cancel()
+        let t = DispatchSource.makeTimerSource(queue: ctl); t.schedule(deadline: .now() + .milliseconds(8), repeating: .milliseconds(8))
+        t.setEventHandler { [weak self] in
+            guard let self, self.fingerDown else { return }
+            let dx = self.fingerTarget.0 - self.fingerPos.0, dy = self.fingerTarget.1 - self.fingerPos.1
+            guard abs(dx) + abs(dy) > 0.0004 else { return }
+            self.fingerPos = (self.fingerPos.0 + dx * 0.6, self.fingerPos.1 + dy * 0.6)
+            self.sendTouch(2, self.fingerPos.0, self.fingerPos.1)
+        }
+        pacer = t; t.resume()
+    }
+
+    /// Runs on `ctl`. A finger (-2), not the mouse (-1): many apps (anything built with Jetpack Compose, for one) ignore scrcpy's synthetic
+    /// mouse clicks and don't scroll on a mouse drag. Real touch works everywhere.
+    private func sendTouch(_ action: UInt8, _ x: Double, _ y: Double) {
         let px = Int(min(max(x, 0), 1) * Double(frame.w - 1)), py = Int(min(max(y, 0), 1) * Double(frame.h - 1))
-        // A finger (-2), not the mouse (-1): many apps (anything built with Jetpack Compose, for one) ignore scrcpy's synthetic mouse clicks
-        // and don't scroll on a mouse drag. Real touch works everywhere.
-        send([2, action] + Self.be(-2, 8) + Self.be(px, 4) + Self.be(py, 4) + Self.be(frame.w, 2) + Self.be(frame.h, 2)
-             + Self.be(action == 1 ? 0 : 0xffff, 2) + Self.be(0, 4) + Self.be(0, 4))
+        write([2, action] + Self.be(-2, 8) + Self.be(px, 4) + Self.be(py, 4) + Self.be(frame.w, 2) + Self.be(frame.h, 2)
+              + Self.be(action == 1 ? 0 : 0xffff, 2) + Self.be(0, 4) + Self.be(0, 4))
     }
 
     func scroll(_ x: Double, _ y: Double, dy: Double) {
@@ -277,7 +303,6 @@ final class FullMirror: ObservableObject {
 struct FullMirrorView: View {
     @ObservedObject var m = FullMirror.shared
     @ObservedObject var mirror = Mirror.shared
-    @Environment(\.openWindow) private var openWindow
     var body: some View {
         VStack(spacing: 10) {
             GeometryReader { geo in
@@ -287,6 +312,7 @@ struct FullMirrorView: View {
                     Color.black
                     TouchLayer(layer: mirror.layer)
                     if let h = m.shape.hole { Circle().fill(.black).frame(width: h.r * 2 * k, height: h.r * 2 * k).position(x: (land ? h.y : h.x) * k, y: (land ? h.x : h.y) * k).allowsHitTesting(false) }
+                    if m.phase == .live, m.mode == .own { StatusBar(shapeScale: k) }
                     if m.phase != .live { status }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: r, style: .continuous))
@@ -355,19 +381,16 @@ struct FullMirrorView: View {
                     .font(.callout).foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center)
                 if m.mode == .mirror { Button("Try again") { m.start() }.buttonStyle(.borderedProminent).controlSize(.large) }
                 else { ProgressView().controlSize(.small) }
-                Button("Use basic mirror instead") { basicMirror() }.buttonStyle(.link)
             case .failed(let e):
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 36)).foregroundStyle(.yellow)
                 Text(e).font(.callout).foregroundStyle(.white).multilineTextAlignment(.center)
                 Button("Try again") { m.start() }.buttonStyle(.borderedProminent)
-                Button("Use basic mirror instead") { basicMirror() }.buttonStyle(.link) // the older screen-share route: needs a tap on the phone, works without adb
             case .working(let t): ProgressView().controlSize(.large); Text(t).font(.callout).foregroundStyle(.white)
             default: ProgressView().controlSize(.large)
             }
         }.padding(28)
     }
 
-    private func basicMirror() { Mirror.shared.state = "waiting"; openWindow(id: "mirror"); Link.shared.sendMessage(["t": "mirror_start"]) }
 }
 
 /// Dragging here moves the window (the window is transparent and borderless, so it has no title bar to grab).
@@ -442,4 +465,65 @@ struct TouchLayer: NSViewRepresentable {
     let layer: CALayer
     func makeNSView(context: Context) -> TouchView { let v = TouchView(); v.layer = layer; v.wantsLayer = true; return v }
     func updateNSView(_ v: TouchView, context: Context) {}
+}
+
+
+/// A status bar for the virtual screen (Android draws none there): clock, battery, Wi-Fi, signal. Click it for the phone's notifications.
+struct StatusBar: View {
+    let shapeScale: CGFloat
+    @ObservedObject var link = Link.shared
+    @State private var open = false
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 5) {
+                TimelineView(.periodic(from: .now, by: 10)) { c in Text(c.date, format: .dateTime.hour().minute()).font(.system(size: 11, weight: .semibold)) }
+                if !link.shade.isEmpty { Circle().fill(.white).frame(width: 6, height: 6) }
+                Spacer()
+                if link.status.wifi { Image(systemName: "wifi").font(.system(size: 10)) }
+                Image(systemName: "cellularbars", variableValue: Double(link.status.signal) / 4).font(.system(size: 10))
+                if link.status.battery >= 0 {
+                    HStack(spacing: 2) {
+                        Text("\(link.status.battery)").font(.system(size: 10, weight: .semibold))
+                        Image(systemName: link.status.charging ? "battery.100percent.bolt" : "battery.100percent").font(.system(size: 11))
+                    }
+                }
+            }
+            .foregroundStyle(.white).shadow(color: .black.opacity(0.7), radius: 1.5)
+            .padding(.horizontal, 22).padding(.top, 8).frame(height: 30)
+            .background(LinearGradient(colors: [.black.opacity(0.35), .clear], startPoint: .top, endPoint: .bottom)) // keeps the clock readable over any app
+            .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } }
+            if open { ShadeView(close: { open = false }) }
+            Spacer(minLength: 0).allowsHitTesting(false)
+        }
+    }
+}
+
+struct ShadeView: View {
+    let close: () -> Void
+    @ObservedObject var link = Link.shared
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack { Text("Notifications").font(.headline); Spacer()
+                if !link.shade.isEmpty { Button("Clear all") { link.shade.forEach { link.sendMessage(["t": "dismiss", "id": $0.id]) } }.buttonStyle(.plain).font(.caption) }
+                Button { close() } label: { Image(systemName: "chevron.up") }.buttonStyle(.plain) }
+            if link.shade.isEmpty { Text("No notifications").font(.callout).foregroundStyle(.secondary).padding(.vertical, 18) }
+            ScrollView {
+                VStack(spacing: 6) {
+                    ForEach(link.shade.prefix(30)) { n in
+                        HStack(alignment: .top, spacing: 8) {
+                            Group { if let i = NSImage(contentsOf: Notifier.iconURL(n.pkg)) { Image(nsImage: i).resizable() } else { Image(systemName: "bell.fill") } }.frame(width: 28, height: 28)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(n.app).font(.caption2).foregroundStyle(.secondary)
+                                Text(n.title).font(.callout.weight(.semibold)).lineLimit(1)
+                                if !n.text.isEmpty { Text(n.text).font(.caption).lineLimit(2).foregroundStyle(.secondary) }
+                            }
+                            Spacer(minLength: 0)
+                            Button { link.sendMessage(["t": "dismiss", "id": n.id]) } label: { Image(systemName: "xmark") }.buttonStyle(.plain).font(.caption2)
+                        }.padding(8).background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }.frame(maxHeight: 320)
+        }
+        .foregroundStyle(.white).padding(12).background(Color(white: 0.08).opacity(0.97), in: RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 10).padding(.top, 6)
+    }
 }

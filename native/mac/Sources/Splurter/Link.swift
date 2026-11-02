@@ -29,6 +29,10 @@ final class Link: ObservableObject {
     @Published var transfer: String?
     struct Media: Identifiable { var id: String; var title: String; var artist: String; var app: String; var playing: Bool; var dur: Double; var pos: Double; var speed: Double; var stamp = Date(); var art: NSImage? }
     @Published var players: [Media] = [] // every active media session on the phone, playing ones first
+    struct PhoneStatus { var battery = -1, signal = 0; var charging = false, wifi = false; var carrier = "" }
+    @Published var status = PhoneStatus()
+    struct Shade: Identifiable { let id: String; let pkg: String, app: String, title: String, text: String }
+    @Published var shade: [Shade] = [] // the phone's current notifications, for the status bar's pull-down list
     @Published var volume: Double = 0.5 // 0...1, the phone's music volume
     private var volumeSetAt = Date.distantPast
     func setVolume(_ v: Double) { volume = v; volumeSetAt = Date(); sendMessage(["t": "volume_set", "level": v]) }
@@ -251,8 +255,20 @@ final class Link: ObservableObject {
         case "app_icon":
             if let pkg = m["pkg"] as? String, pkg.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }), // it becomes a file name
                let png = (m["png"] as? String).flatMap({ Data(base64Encoded: $0) }) { try? png.write(to: Notifier.iconURL(pkg)) }
-        case "notif": DispatchQueue.main.async { Notifier.shared.show(m) }
-        case "notif_gone": if let id = m["id"] as? String { DispatchQueue.main.async { Notifier.shared.remove(id) } }
+        case "notif":
+            DispatchQueue.main.async {
+                Notifier.shared.show(m)
+                if let id = m["id"] as? String {
+                    let n = Shade(id: id, pkg: m["pkg"] as? String ?? "", app: m["app"] as? String ?? "", title: m["title"] as? String ?? "", text: m["text"] as? String ?? "")
+                    if let i = self.shade.firstIndex(where: { $0.id == id }) { self.shade[i] = n } else { self.shade.insert(n, at: 0) }
+                }
+            }
+        case "notif_gone": if let id = m["id"] as? String { DispatchQueue.main.async { Notifier.shared.remove(id); self.shade.removeAll { $0.id == id } } }
+        case "status":
+            DispatchQueue.main.async {
+                self.status = PhoneStatus(battery: m["battery"] as? Int ?? -1, signal: m["signal"] as? Int ?? 0, charging: m["charging"] as? Bool ?? false,
+                                          wifi: m["wifi"] as? Bool ?? false, carrier: m["carrier"] as? String ?? "")
+            }
         default: break
         }
     }

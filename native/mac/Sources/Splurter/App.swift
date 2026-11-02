@@ -22,6 +22,7 @@ struct SplurterApp: App {
 
         Window("Phone", id: "phone") { FullMirrorView() }
             .windowStyle(.hiddenTitleBar)
+            .defaultLaunchBehavior(ProcessInfo.processInfo.environment["SPLURTER_OPEN_PHONE"] != nil ? .presented : .suppressed) // developer hook: open the phone window at launch
             .defaultSize(width: 330, height: 760)
 
         Window("Call audio setup", id: "callaudio") { CallAudioSetupView() }

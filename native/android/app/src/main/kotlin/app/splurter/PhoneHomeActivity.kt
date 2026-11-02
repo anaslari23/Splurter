@@ -26,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -57,9 +58,16 @@ class PhoneHomeActivity : ComponentActivity() {
         runCatching { startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(ComponentName(i.pkg, i.cls)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), o.toBundle()) }
     }
 
+    /** Adaptive icons already come masked; old square icons get a white circle so every icon has the same shape. */
     private fun bitmap(d: android.graphics.drawable.Drawable): ImageBitmap {
         val b = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
-        d.setBounds(0, 0, 128, 128); d.draw(Canvas(b)); return b.asImageBitmap()
+        val c = Canvas(b)
+        if (d is android.graphics.drawable.AdaptiveIconDrawable) { d.setBounds(0, 0, 128, 128); d.draw(c) }
+        else {
+            c.drawCircle(64f, 64f, 64f, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
+            d.setBounds(22, 22, 106, 106); d.draw(c)
+        }
+        return b.asImageBitmap()
     }
 
     private suspend fun load(): List<Item> = withContext(Dispatchers.Default) {
@@ -89,12 +97,12 @@ class PhoneHomeActivity : ComponentActivity() {
         val dock = remember(apps) { dockPackages().mapNotNull { p -> apps.firstOrNull { it.pkg == p } } }
         val shown = remember(apps, query) { if (query.isBlank()) apps else apps.filter { it.label.contains(query, ignoreCase = true) } }
 
-        Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0B1B2B), Color(0xFF1B3A57), Color(0xFF3B2E58)))).systemBarsPadding().padding(horizontal = 14.dp)) {
-            Spacer(Modifier.height(18.dp))
+        Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF070B1A), Color(0xFF14264A), Color(0xFF3A2A66), Color(0xFF7A3F73)))).systemBarsPadding().padding(horizontal = 14.dp)) {
+            Spacer(Modifier.height(40.dp)) // room for the Mac window's status bar, which Android doesn't draw on this screen
             Text(now.format(DateTimeFormatter.ofPattern("h:mm")), color = Color.White, fontSize = 72.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Light, modifier = Modifier.padding(start = 8.dp))
             Text(now.format(DateTimeFormatter.ofPattern("EEE, d MMM")), color = Color.White.copy(alpha = 0.9f), fontSize = 18.sp, modifier = Modifier.padding(start = 10.dp, bottom = 12.dp))
             TextField(query, { query = it }, placeholder = { Text("Search apps") }, singleLine = true, shape = RoundedCornerShape(28.dp),
-                colors = TextFieldDefaults.colors(focusedContainerColor = Color(0x66FFFFFF), unfocusedContainerColor = Color(0x44FFFFFF),
+                colors = TextFieldDefaults.colors(focusedContainerColor = Color(0x55FFFFFF), unfocusedContainerColor = Color(0x2EFFFFFF),
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, focusedTextColor = Color.White, unfocusedTextColor = Color.White,
                     focusedPlaceholderColor = Color.White.copy(alpha = 0.8f), unfocusedPlaceholderColor = Color.White.copy(alpha = 0.8f)),
                 modifier = Modifier.fillMaxWidth())
@@ -102,7 +110,7 @@ class PhoneHomeActivity : ComponentActivity() {
             LazyVerticalGrid(GridCells.Fixed(4), Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 items(shown, key = { it.pkg + it.cls }) { AppCell(it) }
             }
-            if (dock.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(vertical = 10.dp).clip(RoundedCornerShape(32.dp)).background(Color(0x33FFFFFF)).padding(vertical = 12.dp),
+            if (dock.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(vertical = 10.dp).clip(RoundedCornerShape(32.dp)).background(Color(0x2EFFFFFF)).padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly) { dock.forEach { Icon(it) } }
         }
     }
@@ -111,7 +119,8 @@ class PhoneHomeActivity : ComponentActivity() {
 
     @Composable
     private fun AppCell(i: Item) = Column(Modifier.clickable { launch(i) }.padding(2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Image(i.icon, i.label, Modifier.size(56.dp))
+        Image(i.icon, i.label, Modifier.size(58.dp).shadow(6.dp, androidx.compose.foundation.shape.CircleShape))
+        Spacer(Modifier.height(4.dp))
         Text(i.label, color = Color.White, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
