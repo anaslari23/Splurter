@@ -20,6 +20,11 @@ struct SplurterApp: App {
         Window("Phone screen", id: "mirror") { MirrorView() }
             .defaultSize(width: 340, height: 740)
 
+        Window("Phone", id: "phone") { FullMirrorView() }
+            .windowStyle(.hiddenTitleBar)
+            .defaultLaunchBehavior(ProcessInfo.processInfo.environment["SPLURTER_OPEN_PHONE"] != nil ? .presented : .suppressed) // developer hook: open the phone window at launch
+            .defaultSize(width: 330, height: 760)
+
         Window("Call audio setup", id: "callaudio") { CallAudioSetupView() }
             .windowResizability(.contentSize)
 
@@ -206,9 +211,7 @@ struct MenuView: View {
                 if p.runModal() == .OK { p.urls.forEach(link.sendFile) }
             }
             ActionTile(icon: "rectangle.on.rectangle", label: "Mirror", enabled: connected) {
-                Mirror.shared.state = "waiting"
-                openWindow(id: "mirror"); NSApp.activate(ignoringOtherApps: true)
-                link.sendMessage(["t": "mirror_start"])
+                openWindow(id: "phone"); NSApp.activate(ignoringOtherApps: true)
             }
             ActionTile(icon: "phone.arrow.up.right", label: "Call/text", enabled: connected, active: showDial) { showDial.toggle() }
             ActionTile(icon: "qrcode", label: "Pair", enabled: true) { openPairing() }

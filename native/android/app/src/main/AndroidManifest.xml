@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries><intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent><intent><action android:name="android.intent.action.DIAL" /></intent><intent><action android:name="android.intent.action.SENDTO" /><data android:scheme="smsto" /></intent><intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent><intent><action android:name="android.media.action.IMAGE_CAPTURE" /></intent></queries>
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
@@ -20,6 +22,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Home screen for the Mac's own phone screen (a virtual display); started over adb, never shown on the phone itself. -->
+        <activity android:name=".PhoneHomeActivity" android:exported="true" android:theme="@android:style/Theme.Wallpaper.NoTitleBar" android:launchMode="singleTask" android:excludeFromRecents="true" android:resizeableActivity="true" android:windowSoftInputMode="adjustNothing" />
         <activity android:name=".ShareActivity" android:exported="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" android:label="Splurter (Mac)" android:excludeFromRecents="true">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

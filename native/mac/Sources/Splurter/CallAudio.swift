@@ -63,21 +63,7 @@ final class CallAudio: ObservableObject {
         guard adb.path != nil else { return set(.needsSetup("adb is not installed")) }
 
         // 1. Find the phone over wireless debugging (prefer the one Splurter is already talking to).
-        func discover() -> [String] {
-            var found = adb.onlineSerials()
-            if found.isEmpty {
-                let svc = adb.services()
-                self.log("no adb device online; mdns connect services: \(svc.connect.map(\.hostPort))")
-                if let e = svc.connect.first(where: { $0.host == Link.shared.phoneHost }) ?? svc.connect.first, adb.connect(e) { found = adb.onlineSerials() }
-            }
-            return found
-        }
-        var serials = discover()
-        if serials.isEmpty { // adb's server can go stale after the phone's wireless debugging drops: restart it once and look again
-            set(.working("Reconnecting to your phone…")); self.log("restarting the adb server")
-            adb.restartServer(); serials = discover()
-        }
-        guard let s = serials.first(where: { sr in Link.shared.phoneHost.map { sr.hasPrefix($0 + ":") } ?? false }) ?? serials.first else {
+        guard let s = adb.findPhone(log: { self.log($0) }, reconnecting: { self.set(.working("Reconnecting to your phone…")) }) else {
             return set(.needsSetup("Your phone isn't reachable for wireless debugging. Turn on Developer options, Wireless debugging, on the phone (same Wi-Fi as this Mac), or pair it in the setup."))
         }
         log("using adb device \(s)")

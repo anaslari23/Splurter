@@ -63,6 +63,23 @@ final class Adb {
         }
     }
 
+    /// The phone Splurter is paired with, found over wireless debugging (prefers the one at the link's address).
+    /// Restarts adb's stale server once if nothing is reachable; `reconnecting` fires before that slow step.
+    func findPhone(log: (String) -> Void = { _ in }, reconnecting: () -> Void = {}) -> String? {
+        func discover() -> [String] {
+            var found = onlineSerials()
+            if found.isEmpty {
+                let svc = services()
+                log("no adb device online; mdns connect services: \(svc.connect.map(\.hostPort))")
+                if let e = svc.connect.first(where: { $0.host == Link.shared.phoneHost }) ?? svc.connect.first, connect(e) { found = onlineSerials() }
+            }
+            return found
+        }
+        var serials = discover()
+        if serials.isEmpty { reconnecting(); log("restarting the adb server"); restartServer(); serials = discover() }
+        return serials.first(where: { sr in Link.shared.phoneHost.map { sr.hasPrefix($0 + ":") } ?? false }) ?? serials.first
+    }
+
     /// adb's background server can keep a dead view of the phone; restarting it is harmless.
     func restartServer() { run(["kill-server"], timeout: 10); run(["start-server"], timeout: 15); Thread.sleep(forTimeInterval: 5) } // mDNS needs a few seconds to rediscover
 
