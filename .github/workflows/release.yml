@@ -77,18 +77,22 @@ jobs:
   publish:
     needs: [version, android, mac, seal]
     runs-on: ubuntu-latest
-    permissions: { contents: write, id-token: write, attestations: write }
+    permissions: { contents: write, id-token: write, attestations: write, actions: write }
     steps:
       - uses: actions/download-artifact@v4
         with: { path: dist, merge-multiple: true }
       - name: Collect files
         run: |
-          V="${{ needs.version.outputs.v }}"
-          mv dist/sealed.zip "dist/Splurter-$V-repomark-sealed-source.zip"
-          cd dist && sha256sum Splurter-* > SHA256SUMS.txt && ls -la
+          rm -f dist/sealed.zip  # the RepoMark seal is kept private: only the installers are published (the seal and its attestation still exist)
+          ls -la dist
       - name: Provenance for the installers
         uses: actions/attest-build-provenance@v2
         with: { subject-path: 'dist/Splurter-*' }
+      - name: Remove the sealed-source artifact from the run page
+        env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
+        run: |
+          ID=$(gh api "repos/$GH_REPO/actions/runs/${{ github.run_id }}/artifacts" -q '.artifacts[] | select(.name=="repomark-sealed-source") | .id')
+          [ -z "$ID" ] || gh api -X DELETE "repos/$GH_REPO/actions/artifacts/$ID"
       - name: Publish the GitHub release
         env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
         run: |
@@ -100,8 +104,6 @@ jobs:
           | --- | --- |
           | \`Splurter-$V.dmg\` / \`Splurter-$V.pkg\` | Mac (macOS 15 or newer). The app is not notarized yet: right-click, **Open** the first time. |
           | \`Splurter-$V*.apk\` | Android 13 or newer. Allow installing from this source, then open it and scan the QR code shown by the Mac. |
-          | \`SHA256SUMS.txt\` | Checksums of every download. |
-          | \`Splurter-$V-repomark-sealed-source.zip\` | The source of this exact commit, sealed with [RepoMark](https://github.com/anaslari23/RepoMark). |
 
           Check where a file came from: \`gh attestation verify <file> -R ${GH_REPO}\`.
           Call audio on the Mac and the phone window need Wireless debugging (one-time setup); everything else works without it.
