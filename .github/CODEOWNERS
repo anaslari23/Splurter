@@ -1,0 +1,4 @@
+# Changes to the build and release pipeline need the owner's review (turn on "Require review from Code Owners" in a branch ruleset once there are other collaborators).
+/.github/ @anaslari23
+/native/package.sh @anaslari23
+/native/package_mac.sh @anaslari23

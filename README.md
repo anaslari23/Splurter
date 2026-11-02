@@ -107,8 +107,7 @@ docs/         protocol and project docs
 
 Pushing a tag such as `v0.3.0` (or running the **Release** workflow by hand) builds everything on GitHub and publishes a release with:
 the Android `.apk`, the Mac `.dmg` and `.pkg`, `SHA256SUMS.txt`, and a source archive sealed with [RepoMark](https://github.com/anaslari23/RepoMark) (verify with `gh attestation verify <file> -R anaslari23/Splurter`).
-The Mac app is ad-hoc signed and not notarized, so the first launch needs a right-click, **Open**. To sign the APK with the release key, add the repository secrets
-`ANDROID_KEYSTORE_B64` (the `.jks`, base64), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and, if different, `ANDROID_KEY_PASSWORD`; without them the APK is debug-signed and says so in its name.
+The Mac app is ad-hoc signed and not notarized, so the first launch needs a right-click, **Open**. The APK is signed with the release key, which is stored only as secrets of the `release` environment (`ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` if it differs). That environment needs the owner's approval for every run and only accepts `v*` tags and `main`; without the secrets an APK is debug-signed and says so in its name.
 Build the same files locally with `VERSION=0.3.0 sh native/package.sh`.
 
 ## Known limits
