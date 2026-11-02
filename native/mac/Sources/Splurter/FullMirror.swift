@@ -28,14 +28,13 @@ final class FullMirror: ObservableObject {
     private var frame = (w: 0, h: 0)
     private var lastInput = Date.distantPast
     private var displayId: Int?
-    @Published var showLauncher = false
+    private var holding = false // the phone was locked: kept awake with its panel off so the virtual screen keeps running
 
-    /// Own-screen mode has no home screen of its own, so the Mac shows the phone's app list and starts the app on the virtual display.
-    func launch(_ a: Link.PhoneApp) {
-        log("launch \(a.pkg)/\(a.cls) serial=\(serial ?? "nil") display=\(displayId.map(String.init) ?? "nil")")
+    /// Own-screen mode needs a home screen: Android's launcher only offers a dock on a second display, so the phone app ships its own
+    /// (PhoneHomeActivity). Apps open on top of it and Back returns to it, so this display is never empty.
+    func home() {
         guard let s = serial, let d = displayId else { return }
-        showLauncher = false
-        DispatchQueue.global().async { let r = Adb.shared.run(["-s", s, "shell", "am start --display \(d) -n \(a.pkg)/\(a.cls)"]); self.log("launch \(a.pkg): \(r.output.prefix(80))") }
+        DispatchQueue.global().async { let r = Adb.shared.run(["-s", s, "shell", "am start --display \(d) -n app.splurter/.PhoneHomeActivity"]); self.log("home: \(r.output.suffix(80))") }
     }
 
     private func set(_ p: Phase) { DispatchQueue.main.async { self.phase = p } }
@@ -55,7 +54,7 @@ final class FullMirror: ObservableObject {
         guard let s = adb.findPhone(log: log, reconnecting: { self.set(.working("Reconnecting to your phone…")) }) else {
             return set(.failed("Your phone isn't reachable for wireless debugging. Turn on Developer options, Wireless debugging (same Wi-Fi), or pair it in “Call audio setup…”."))
         }
-        serial = s; frame = (0, 0); guard g == gen else { return }
+        serial = s; frame = (0, 0); holding = false; restoreTimeout(s) // a crash during an earlier lock-hold would have left the screen timeout raised guard g == gen else { return }
         guard let jar = Bundle.main.url(forResource: "scrcpy-server", withExtension: "jar") else { return set(.failed("The app is missing its phone-mirror helper")) }
         let r = adb.run(["-s", s, "push", jar.path, "/data/local/tmp/scrcpy-server.jar"], timeout: 30)
         guard r.status == 0 else { return set(.failed("Could not copy the helper to the phone: \(r.output.prefix(100))")) }
@@ -85,14 +84,17 @@ final class FullMirror: ObservableObject {
         guard fw.status == 0, let port = Int(fw.output.trimmingCharacters(in: .whitespacesAndNewlines)) else { return set(.failed("adb forward failed")) }
         forwardPort = port
 
+        // The virtual screen is rendered and encoded by the phone, so keep it light: 720 px wide is plenty for a Mac window (~660 px on a
+        // Retina display) and renders ~2x cheaper than the phone's full 1080. The dpi is scaled to match, so apps lay out as on the phone.
+        let ownW = 720, ownH = Int((720 * sh.h / sh.w).rounded()) / 2 * 2, ownDpi = 280
         let p = Process(); p.executableURL = URL(fileURLWithPath: adb.path!)
-        p.arguments = ["-s", s, "shell", "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 5.0.1 scid=\(scid) log_level=info tunnel_forward=true audio=false control=true cleanup=false max_size=1920 video_bit_rate=16000000 max_fps=120 video_codec_options=i-frame-interval:int=1" + (mode == .own ? " new_display=\(Int(sh.w))x\(Int(sh.h))/420 vd_system_decorations=false" : "")]
+        p.arguments = ["-s", s, "shell", "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 5.0.1 scid=\(scid) log_level=info tunnel_forward=true audio=false control=true cleanup=false max_size=1920 video_bit_rate=\(mode == .own ? 8_000_000 : 16_000_000) max_fps=\(mode == .own ? 60 : 120) video_codec_options=i-frame-interval:int=2,bitrate-mode:int=2,latency:int=1,priority:int=0" + (mode == .own ? " new_display=\(ownW)x\(ownH)/\(ownDpi) vd_system_decorations=false" : "")]
         let out = Pipe(); p.standardOutput = out; p.standardError = out
         let up = DispatchSemaphore(value: 0)
         out.fileHandleForReading.readabilityHandler = { h in
             let t = String(data: h.availableData, encoding: .utf8) ?? ""
             if !t.isEmpty { self.log("server: " + t.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            if let r = t.range(of: #"\(id=(\d+)\)"#, options: .regularExpression) { self.displayId = Int(t[r].filter(\.isNumber)) } // the virtual display's id
+            if let r = t.range(of: #"\(id=(\d+)\)"#, options: .regularExpression) { self.displayId = Int(t[r].filter(\.isNumber)); if self.mode == .own { self.home() } } // the virtual display's id
             if t.contains("Device:") { up.signal() }
         }
         p.terminationHandler = { _ in up.signal() }
@@ -103,8 +105,50 @@ final class FullMirror: ObservableObject {
         vfd = Self.connectLocal(port); guard vfd >= 0 else { teardown(); return set(.failed("Could not connect to the phone")) }
         cfd = Self.connectLocal(port)
         guard g == gen else { return teardown() }
+        watchWakefulness(s, g)
         let gotVideo = readVideo(g)
-        if g == gen { teardown(); set(gotVideo ? .idle : Self.asleep(s) || Self.keyguardUp(s) ? .needsUnlock : .failed("The phone didn't send any video. Try again; if it keeps failing, turn Wireless debugging off and on.")) }
+        if g == gen { teardown(); set(gotVideo ? .idle : Self.asleep(s) || Self.keyguardUp(s) ? .needsUnlock : .failed("The phone didn't start its screen in time. It may be short of memory: close some apps or restart the phone, then Try again.")) }
+    }
+
+    /// Locking the phone puts it to sleep, and a sleeping phone stops the virtual screen (the Mac window goes black). So the first time
+    /// the phone falls asleep during a session we wake it and switch its panel off: it looks locked, but keeps running the Mac's screen.
+    /// Pressing the power button again (it falls asleep once more) hands the phone back: panel on, normal behaviour.
+    private func watchWakefulness(_ s: String, _ g: Int) {
+        DispatchQueue.global().async {
+            let adb = Adb.shared; var last = "", quietUntil = Date.distantPast
+            while g == self.gen {
+                let w = adb.run(["-s", s, "shell", "dumpsys power | grep -m1 mWakefulness="], timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
+                if w != last { self.log("phone \(w)") }
+                let asleepNow = !w.isEmpty && !w.contains("Awake")
+                if asleepNow, !last.isEmpty, !last.contains("Dozing"), !last.contains("Asleep"), self.mode == .own, Date() > quietUntil {
+                    if self.holding { self.release(s) } else { self.hold(s) }
+                    quietUntil = Date().addingTimeInterval(2.5)
+                }
+                last = w
+                Thread.sleep(forTimeInterval: 0.7)
+            }
+        }
+    }
+
+    private func hold(_ s: String) {
+        log("phone locked: holding it awake, panel off")
+        holding = true
+        let orig = Adb.shared.run(["-s", s, "shell", "settings get system screen_off_timeout"]).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if Int(orig) != nil, Int(orig)! < 1_000_000_000 { UserDefaults.standard.set(orig, forKey: "origScreenTimeout") } // restored on release, session end, or next start
+        Adb.shared.run(["-s", s, "shell", "settings put system screen_off_timeout 2147483647; input keyevent KEYCODE_WAKEUP"])
+        send([10, 0])
+    }
+
+    private func release(_ s: String) {
+        log("power button again: giving the phone back")
+        holding = false; send([10, 1]); restoreTimeout(s)
+        Adb.shared.run(["-s", s, "shell", "input keyevent KEYCODE_WAKEUP"])
+    }
+
+    private func restoreTimeout(_ s: String) {
+        if let t = UserDefaults.standard.string(forKey: "origScreenTimeout") {
+            Adb.shared.run(["-s", s, "shell", "settings put system screen_off_timeout \(t)"]); UserDefaults.standard.removeObject(forKey: "origScreenTimeout")
+        }
     }
 
     private static func asleep(_ s: String) -> Bool { !Adb.shared.run(["-s", s, "shell", "dumpsys power | grep mWakefulness="]).output.contains("Awake") }
@@ -126,16 +170,22 @@ final class FullMirror: ObservableObject {
     }
 
     private func readVideo(_ g: Int) -> Bool {
+        // A phone that is out of memory can take a minute to start the helper (or never does): give up after 25 s instead of hanging on black.
+        var tv = timeval(tv_sec: 25, tv_usec: 0); setsockopt(vfd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
         guard readExact(1 + 64 + 4) != nil else { log("no video header"); return false }
-        var n = 0
+        tv = timeval(tv_sec: 0, tv_usec: 0); setsockopt(vfd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        var n = 0, bytes = 0, tick = Date(), last = Date(), maxGap = 0.0, pkts = 0 // per-2 s video stats for the log: lag shows up here
         while g == gen {
             guard let h = readExact(12) else { break }
+            let nowT = Date(); maxGap = max(maxGap, nowT.timeIntervalSince(last)); last = nowT
+            if nowT.timeIntervalSince(tick) >= 2 {
+                log("video: \(pkts / 2) pkt/s, \(bytes / 2048) KB/s, longest wait \(Int(maxGap * 1000)) ms"); tick = nowT; pkts = 0; bytes = 0; maxGap = 0
+            }
             if h[0] & 0x80 != 0 { // session header: new frame size (first frame, or the phone rotated)
                 let w = Int(h[4]) << 24 | Int(h[5]) << 16 | Int(h[6]) << 8 | Int(h[7]), hh = Int(h[8]) << 24 | Int(h[9]) << 16 | Int(h[10]) << 8 | Int(h[11])
                 frame = (w, hh); log("frame size \(w)x\(hh)")
                 DispatchQueue.main.async {
                     if hh > 0 { Mirror.shared.aspect = CGFloat(w) / CGFloat(hh) }
-                    if self.phase != .live, self.mode == .own { self.showLauncher = true; Link.shared.requestApps() } // an empty virtual screen: start at the app list
                     self.phase = .live
                 }
                 continue
@@ -143,7 +193,7 @@ final class FullMirror: ObservableObject {
             let size = Int(h[8]) << 24 | Int(h[9]) << 16 | Int(h[10]) << 8 | Int(h[11])
             guard size > 0, size < 8_000_000, let payload = readExact(size) else { break }
             let kind: UInt8 = h[0] & 0x40 != 0 ? 0 : h[0] & 0x20 != 0 ? 1 : 2
-            Mirror.shared.feed(Data([2, kind]) + payload); n += 1
+            Mirror.shared.feed(Data([2, kind]) + payload); n += 1; pkts += 1; bytes += size
             if n == 1 { DispatchQueue.main.async { if self.phase != .live { self.phase = .live } } } // a picture is arriving: drop the "connecting" overlay
         }
         log("video ended after \(n) packets")
@@ -151,6 +201,9 @@ final class FullMirror: ObservableObject {
     }
 
     private func teardown() {
+        if holding, cfd >= 0 { var on: [UInt8] = [10, 1]; _ = write(cfd, &on, 2); Thread.sleep(forTimeInterval: 0.15) } // panel back on before the helper goes
+        if holding || UserDefaults.standard.string(forKey: "origScreenTimeout") != nil, let s = serial { restoreTimeout(s) }
+        holding = false
         for f in [vfd, cfd] where f >= 0 { shutdown(f, SHUT_RDWR); close(f) }
         vfd = -1; cfd = -1
         if let p = server, p.isRunning { p.terminate() }; server = nil
@@ -197,8 +250,10 @@ final class FullMirror: ObservableObject {
         guard cfd >= 0, frame.w > 0, frame.h > 0 else { return } // not connected yet: a click then must not count as "using the phone"
         if action == 0, mode == .mirror { wakeIfIdle() }
         let px = Int(min(max(x, 0), 1) * Double(frame.w - 1)), py = Int(min(max(y, 0), 1) * Double(frame.h - 1))
-        send([2, action] + Self.be(-1, 8) + Self.be(px, 4) + Self.be(py, 4) + Self.be(frame.w, 2) + Self.be(frame.h, 2)
-             + Self.be(action == 1 ? 0 : 0xffff, 2) + Self.be(1, 4) + Self.be(action == 1 ? 0 : 1, 4))
+        // A finger (-2), not the mouse (-1): many apps (anything built with Jetpack Compose, for one) ignore scrcpy's synthetic mouse clicks
+        // and don't scroll on a mouse drag. Real touch works everywhere.
+        send([2, action] + Self.be(-2, 8) + Self.be(px, 4) + Self.be(py, 4) + Self.be(frame.w, 2) + Self.be(frame.h, 2)
+             + Self.be(action == 1 ? 0 : 0xffff, 2) + Self.be(0, 4) + Self.be(0, 4))
     }
 
     func scroll(_ x: Double, _ y: Double, dy: Double) {
@@ -232,7 +287,6 @@ struct FullMirrorView: View {
                     Color.black
                     TouchLayer(layer: mirror.layer)
                     if let h = m.shape.hole { Circle().fill(.black).frame(width: h.r * 2 * k, height: h.r * 2 * k).position(x: (land ? h.y : h.x) * k, y: (land ? h.x : h.y) * k).allowsHitTesting(false) }
-                    if m.showLauncher, m.mode == .own { LauncherView(m: m).transition(.opacity) }
                     if m.phase != .live { status }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: r, style: .continuous))
@@ -240,10 +294,14 @@ struct FullMirrorView: View {
             }
             .aspectRatio(mirror.aspect, contentMode: .fit)
             HStack(spacing: 22) {
+                HStack(spacing: 7) { // close / minimise, as on any Mac window
+                    windowDot(.red, "xmark", "Close") { NSApp.windows.first { $0.title == "Phone" }?.close() }
+                    windowDot(.yellow, "minus", "Minimise") { NSApp.windows.first { $0.title == "Phone" }?.miniaturize(nil) }
+                }
                 Image(systemName: "line.3.horizontal").foregroundStyle(.secondary).help("Drag to move the window (or hold ⌥ and drag the phone)")
                 bar("chevron.left", "Back (Esc)") { m.back() }
                 if m.mode == .own {
-                    bar("square.grid.2x2", "All apps") { m.showLauncher = true; Link.shared.requestApps() }
+                    bar("house", "Home") { m.home() }
                 } else {
                     bar("circle", "Home") { m.key(FullMirror.home) }
                     bar("square.on.square", "Recent apps") { m.key(FullMirror.recents) }
@@ -275,6 +333,11 @@ struct FullMirrorView: View {
         let size = a > 1 ? NSSize(width: long + pad, height: long / a + pad + bar) : NSSize(width: long * a + pad, height: long + pad + bar)
         var f = w.frame; f.origin.y += f.height - size.height; f.size = size
         w.setFrame(f, display: true, animate: true)
+    }
+
+    private func windowDot(_ c: Color, _ icon: String, _ help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: icon).font(.system(size: 7, weight: .black)).foregroundStyle(.black.opacity(0.55)).frame(width: 13, height: 13).background(c, in: Circle()) }
+            .buttonStyle(.plain).help(help)
     }
 
     private func bar(_ icon: String, _ help: String, _ action: @escaping () -> Void) -> some View {
@@ -379,35 +442,4 @@ struct TouchLayer: NSViewRepresentable {
     let layer: CALayer
     func makeNSView(context: Context) -> TouchView { let v = TouchView(); v.layer = layer; v.wantsLayer = true; return v }
     func updateNSView(_ v: TouchView, context: Context) {}
-}
-
-/// App grid over the virtual screen: the phone's launchable apps with their icons, searchable.
-struct LauncherView: View {
-    @ObservedObject var m: FullMirror
-    @ObservedObject var link = Link.shared
-    @State private var query = ""
-    private var shown: [Link.PhoneApp] { query.isEmpty ? link.apps : link.apps.filter { $0.label.localizedCaseInsensitiveContains(query) } }
-    var body: some View {
-        VStack(spacing: 10) {
-            TextField("Search apps", text: $query).textFieldStyle(.roundedBorder).padding(.top, 44).padding(.horizontal, 16)
-            ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 14) {
-                    ForEach(shown) { a in
-                        Button { m.launch(a) } label: {
-                            VStack(spacing: 4) {
-                                Group {
-                                    if let i = NSImage(contentsOf: Notifier.iconURL(a.pkg)) { Image(nsImage: i).resizable().scaledToFit() }
-                                    else { RoundedRectangle(cornerRadius: 12).fill(.quaternary) }
-                                }.frame(width: 52, height: 52)
-                                Text(a.label).font(.caption2).lineLimit(1).foregroundStyle(.white)
-                            }
-                        }.buttonStyle(.plain)
-                    }
-                }.padding(.horizontal, 12).id(link.iconTick)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity).background(.black.opacity(0.88))
-        .overlay { if link.apps.isEmpty { ProgressView() } }
-        .overlay(alignment: .topTrailing) { Button { m.showLauncher = false } label: { Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.white.opacity(0.7)) }.buttonStyle(.plain).padding(14) }
-    }
 }

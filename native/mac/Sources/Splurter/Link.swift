@@ -29,13 +29,6 @@ final class Link: ObservableObject {
     @Published var transfer: String?
     struct Media: Identifiable { var id: String; var title: String; var artist: String; var app: String; var playing: Bool; var dur: Double; var pos: Double; var speed: Double; var stamp = Date(); var art: NSImage? }
     @Published var players: [Media] = [] // every active media session on the phone, playing ones first
-    struct PhoneApp: Identifiable { let pkg: String, cls: String, label: String; var id: String { pkg } }
-    @Published var apps: [PhoneApp] = []
-    @Published var iconTick = 0 // bumps when an app icon arrives, so the launcher redraws
-    func requestApps() {
-        let dir = (try? FileManager.default.contentsOfDirectory(atPath: Notifier.iconURL("x").deletingLastPathComponent().path)) ?? []
-        sendMessage(["t": "apps_req", "have": dir.map { ($0 as NSString).deletingPathExtension }])
-    }
     @Published var volume: Double = 0.5 // 0...1, the phone's music volume
     private var volumeSetAt = Date.distantPast
     func setVolume(_ v: Double) { volume = v; volumeSetAt = Date(); sendMessage(["t": "volume_set", "level": v]) }
@@ -257,11 +250,7 @@ final class Link: ObservableObject {
         case "file", "file_end": receive(m, t)
         case "app_icon":
             if let pkg = m["pkg"] as? String, pkg.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }), // it becomes a file name
-               let png = (m["png"] as? String).flatMap({ Data(base64Encoded: $0) }) { try? png.write(to: Notifier.iconURL(pkg)); DispatchQueue.main.async { self.iconTick += 1 } }
-        case "apps":
-            let list = (m["apps"] as? [[String: Any]] ?? []).compactMap { a -> PhoneApp? in
-                guard let p = a["pkg"] as? String, let c = a["cls"] as? String, let l = a["label"] as? String else { return nil }; return PhoneApp(pkg: p, cls: c, label: l) }
-            DispatchQueue.main.async { self.apps = list }
+               let png = (m["png"] as? String).flatMap({ Data(base64Encoded: $0) }) { try? png.write(to: Notifier.iconURL(pkg)) }
         case "notif": DispatchQueue.main.async { Notifier.shared.show(m) }
         case "notif_gone": if let id = m["id"] as? String { DispatchQueue.main.async { Notifier.shared.remove(id) } }
         default: break
