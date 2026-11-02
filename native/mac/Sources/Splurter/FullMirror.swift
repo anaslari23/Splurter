@@ -480,56 +480,80 @@ struct StatusBar: View {
     @ObservedObject var link = Link.shared
     @State private var open = false
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 5) {
-                TimelineView(.periodic(from: .now, by: 10)) { c in Text(c.date, format: .dateTime.hour().minute()).font(.system(size: 11, weight: .semibold)) }
-                if !link.shade.isEmpty { Circle().fill(.white).frame(width: 6, height: 6) }
-                Spacer()
-                if link.status.wifi { Image(systemName: "wifi").font(.system(size: 10)) }
-                Image(systemName: "cellularbars", variableValue: Double(link.status.signal) / 4).font(.system(size: 10))
-                if link.status.battery >= 0 {
-                    HStack(spacing: 2) {
-                        Text("\(link.status.battery)").font(.system(size: 10, weight: .semibold))
-                        Image(systemName: link.status.charging ? "battery.100percent.bolt" : "battery.100percent").font(.system(size: 11))
+        ZStack(alignment: .top) {
+            if open { // tapping anywhere outside the shade closes it, like on the phone
+                Color.black.opacity(0.28).contentShape(Rectangle()).onTapGesture { withAnimation(.easeOut(duration: 0.15)) { open = false } }
+            }
+            VStack(spacing: 0) {
+                HStack(spacing: 5) {
+                    TimelineView(.periodic(from: .now, by: 10)) { c in Text(c.date, format: .dateTime.hour().minute()).font(.system(size: 11, weight: .semibold)) }
+                    if !link.shade.isEmpty { Circle().fill(.white).frame(width: 6, height: 6) }
+                    Spacer()
+                    if link.status.wifi { Image(systemName: "wifi").font(.system(size: 10)) }
+                    Image(systemName: "cellularbars", variableValue: Double(link.status.signal) / 4).font(.system(size: 10))
+                    if link.status.battery >= 0 {
+                        HStack(spacing: 2) {
+                            Text("\(link.status.battery)").font(.system(size: 10, weight: .semibold))
+                            Image(systemName: link.status.charging ? "battery.100percent.bolt" : "battery.100percent").font(.system(size: 11))
+                        }
                     }
                 }
+                .foregroundStyle(.white).shadow(color: .black.opacity(0.7), radius: 1.5)
+                .padding(.horizontal, 22).padding(.top, 8).frame(height: 30)
+                .background(LinearGradient(colors: [.black.opacity(open ? 0 : 0.35), .clear], startPoint: .top, endPoint: .bottom)) // keeps the clock readable over any app
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } }
+                if open { ShadeView(close: { open = false }).transition(.move(edge: .top).combined(with: .opacity)) }
+                Spacer(minLength: 0).allowsHitTesting(false)
             }
-            .foregroundStyle(.white).shadow(color: .black.opacity(0.7), radius: 1.5)
-            .padding(.horizontal, 22).padding(.top, 8).frame(height: 30)
-            .background(LinearGradient(colors: [.black.opacity(0.35), .clear], startPoint: .top, endPoint: .bottom)) // keeps the clock readable over any app
-            .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } }
-            if open { ShadeView(close: { open = false }) }
-            Spacer(minLength: 0).allowsHitTesting(false)
         }
     }
 }
 
+/// The notification list: as tall as its content (never a big empty panel), full width, with separate rounded cards like Android's shade.
 struct ShadeView: View {
     let close: () -> Void
     @ObservedObject var link = Link.shared
+    @State private var listHeight: CGFloat = 0
+    private struct HeightKey: PreferenceKey { static var defaultValue: CGFloat = 0; static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() } }
     var body: some View {
-        VStack(spacing: 8) {
-            HStack { Text("Notifications").font(.headline); Spacer()
-                if !link.shade.isEmpty { Button("Clear all") { link.shade.forEach { link.sendMessage(["t": "dismiss", "id": $0.id]) } }.buttonStyle(.plain).font(.caption) }
-                Button { close() } label: { Image(systemName: "chevron.up") }.buttonStyle(.plain) }
-            if link.shade.isEmpty { Text("No notifications").font(.callout).foregroundStyle(.secondary).padding(.vertical, 18) }
-            ScrollView {
-                VStack(spacing: 6) {
-                    ForEach(link.shade.prefix(30)) { n in
-                        HStack(alignment: .top, spacing: 8) {
-                            Group { if let i = NSImage(contentsOf: Notifier.iconURL(n.pkg)) { Image(nsImage: i).resizable() } else { Image(systemName: "bell.fill") } }.frame(width: 28, height: 28)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(n.app).font(.caption2).foregroundStyle(.secondary)
-                                Text(n.title).font(.callout.weight(.semibold)).lineLimit(1)
-                                if !n.text.isEmpty { Text(n.text).font(.caption).lineLimit(2).foregroundStyle(.secondary) }
-                            }
-                            Spacer(minLength: 0)
-                            Button { link.sendMessage(["t": "dismiss", "id": n.id]) } label: { Image(systemName: "xmark") }.buttonStyle(.plain).font(.caption2)
-                        }.padding(8).background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        VStack(spacing: 10) {
+            HStack {
+                Text(Date.now, format: .dateTime.weekday(.wide).day().month()).font(.system(size: 13)).foregroundStyle(.white.opacity(0.7))
+                Spacer()
+                Button { close() } label: { Image(systemName: "chevron.up").font(.system(size: 12, weight: .semibold)) }.buttonStyle(.plain)
+            }
+            if link.shade.isEmpty {
+                Text("No notifications").font(.system(size: 14)).foregroundStyle(.white.opacity(0.6)).padding(.vertical, 14)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 6) {
+                        ForEach(link.shade.prefix(30)) { n in card(n) }
                     }
+                    .background(GeometryReader { Color.clear.preference(key: HeightKey.self, value: $0.size.height) })
                 }
-            }.frame(maxHeight: 320)
+                .frame(height: min(max(listHeight, 10), 380))
+                .onPreferenceChange(HeightKey.self) { listHeight = $0 }
+                HStack { Spacer(); Button("Clear all") { link.shade.forEach { link.sendMessage(["t": "dismiss", "id": $0.id]) } }
+                    .buttonStyle(.plain).font(.system(size: 12, weight: .medium)).padding(.horizontal, 14).padding(.vertical, 6)
+                    .background(Color.white.opacity(0.14), in: Capsule()) }
+            }
         }
-        .foregroundStyle(.white).padding(12).background(Color(white: 0.08).opacity(0.97), in: RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 10).padding(.top, 6)
+        .foregroundStyle(.white).padding(.horizontal, 12).padding(.top, 4).padding(.bottom, 12)
+        .background(Color(white: 0.09), in: UnevenRoundedRectangle(bottomLeadingRadius: 28, bottomTrailingRadius: 28, style: .continuous))
+    }
+
+    private func card(_ n: Link.Shade) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Group { if let i = NSImage(contentsOf: Notifier.iconURL(n.pkg)) { Image(nsImage: i).resizable().clipShape(Circle()) } else { Image(systemName: "bell.fill") } }.frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(n.app).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                Text(n.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                if !n.text.isEmpty { Text(n.text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.75)).lineLimit(2) }
+            }
+            Spacer(minLength: 0)
+            Button { link.sendMessage(["t": "dismiss", "id": n.id]) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white.opacity(0.6)) }.buttonStyle(.plain)
+        }
+        .padding(12).background(Color(white: 0.17), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
