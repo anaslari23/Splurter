@@ -249,15 +249,22 @@ struct MenuView: View {
     }
 
     private var footer: some View {
-        HStack {
-            Toggle("Open at login", isOn: Binding(
-                get: { SMAppService.mainApp.status == .enabled },
-                set: { on in try? (on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()) }))
-                .toggleStyle(.switch).controlSize(.small)
-            Spacer()
-            Button("Call audio setup…") { openWindow(id: "callaudio"); NSApp.activate(ignoringOtherApps: true) }.buttonStyle(.plain).foregroundStyle(.secondary)
-            Text("·").foregroundStyle(.tertiary)
-            Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.plain).foregroundStyle(.secondary)
+        VStack(spacing: 8) {
+            HStack {
+                Toggle("Open at login", isOn: Binding(
+                    get: { SMAppService.mainApp.status == .enabled },
+                    set: { on in try? (on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()) }))
+                    .toggleStyle(.switch).controlSize(.small)
+                Spacer()
+                Toggle("Share clipboard", isOn: $link.shareClipboard).toggleStyle(.switch).controlSize(.small)
+                    .help("Send text you copy on the Mac to the phone. Password-manager copies and files are never sent.")
+            }
+            HStack {
+                Spacer()
+                Button("Call audio setup…") { openWindow(id: "callaudio"); NSApp.activate(ignoringOtherApps: true) }.buttonStyle(.plain).foregroundStyle(.secondary)
+                Text("·").foregroundStyle(.tertiary)
+                Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.plain).foregroundStyle(.secondary)
+            }
         }.font(.caption)
     }
 
