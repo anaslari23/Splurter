@@ -28,6 +28,16 @@ directly over your Wi-Fi, end-to-end encrypted. No account and no cloud.</p>
 ³ Works on a real call (Pixel 9a, Android 17) after a one-time Wireless debugging setup, with no extra hardware and no root. Tested on one phone. See [Call audio](#call-audio-beta).
 ⁴ Needs a macOS Camera Extension, which must be signed with an Apple Developer team ID.
 
+## Screenshots
+
+<p>
+  <img src="docs/images/popover.png" alt="The Splurter menu-bar popover on the Mac: now playing with seek and volume, actions, recent activity" width="300">
+  <img src="docs/images/phone-window.png" alt="The phone window on the Mac: the virtual phone's home screen" width="300">
+  <img src="docs/images/phone-window-app.png" alt="An app (Settings) running in the phone window" width="300">
+</p>
+
+The menu-bar popover (left) is from a real Pixel 9a connected to a Mac. The phone window (middle and right) shows the virtual screen's content, captured on an Android emulator so that nothing personal is shown.
+
 ## How it works
 
 ```
